@@ -1,7 +1,8 @@
 [project]
 name = "justpipe"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Your code is the graph. Async, streaming pipelines for AI."
+# ... (keeping existing fields)
 readme = "README.md"
 authors = [
     { name = "Pavel Larkin", email = "laxkin@gmail.com" }
@@ -29,10 +30,14 @@ retry = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
+[tool.hatch.version]
+source = "vcs"
+
 [dependency-groups]
+# ... (keeping dev group)
 dev = [
     "mypy>=1.8.0",
     "pytest>=8.0",
