@@ -2,6 +2,12 @@
 PRD.md
 .coverage
 __pycache__/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 
 # Local conductor files
 conductor/
