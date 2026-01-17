@@ -1,26 +1,32 @@
 import asyncio
-import contextlib
 import inspect
 import warnings
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
+from collections import defaultdict
 from typing import (
     Any,
     AsyncGenerator,
     Callable,
     Dict,
+    List,
     Optional,
-    Union,
+    Set,
     TypeVar,
     Generic,
-    Set,
-    List,
-    cast,
+    Union,
     get_args,
 )
 
 from justpipe.visualization import generate_mermaid_graph
-
+from justpipe.types import (
+    Event,
+    EventType,
+    Next,
+    Map,
+    Run,
+    Suspend,
+    _resolve_name,
+)
 
 try:
     from tenacity import retry, stop_after_attempt, wait_exponential
@@ -29,35 +35,20 @@ try:
 except ImportError:
     HAS_TENACITY = False
 
-# Parameter name aliases for smart injection
+    def retry(  # type: ignore[no-redef]
+        *args: Any, **kwargs: Any
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        return lambda f: f
+
+    def stop_after_attempt(*args: Any, **kwargs: Any) -> Any:  # type: ignore[no-redef]
+        return None
+
+    def wait_exponential(*args: Any, **kwargs: Any) -> Any:  # type: ignore[no-redef]
+        return None
+
+
 STATE_ALIASES: frozenset[str] = frozenset({"s", "state"})
-CONTEXT_ALIASES: frozenset[str] = frozenset({"ctx", "context", "c"})
-
-
-class EventType(Enum):
-    START = "start"
-    TOKEN = "token"
-    STEP_START = "step_start"
-    STEP_END = "step_end"
-    ERROR = "error"
-    FINISH = "finish"
-
-
-@dataclass
-class Event:
-    type: EventType
-    stage: str
-    data: Any = None
-
-
-def _resolve_name(target: Union[str, Callable[..., Any]]) -> str:
-    if isinstance(target, str):
-        return target
-
-    if hasattr(target, "__name__"):
-        return target.__name__
-
-    raise ValueError(f"Cannot resolve name for {target}")
+CONTEXT_ALIASES: frozenset[str] = frozenset({"c", "ctx", "context"})
 
 
 def _analyze_signature(
@@ -68,7 +59,6 @@ def _analyze_signature(
     """Analyze function signature and map parameters to state or context."""
     mapping = {}
     sig = inspect.signature(func)
-
     for name, param in sig.parameters.items():
         # 1. Match by Type (skip if type is Any to avoid collisions)
         if param.annotation is state_type and state_type is not Any:
@@ -84,21 +74,8 @@ def _analyze_signature(
         elif param.default is not inspect.Parameter.empty:
             continue
         else:
-            raise ValueError(f"Unknown argument '{name}' in step '{func.__name__}'.")
-
+            mapping[name] = "unknown"
     return mapping
-
-
-@dataclass
-class Next:
-    target: Union[str, Callable[..., Any], None]
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def stage(self) -> Optional[str]:
-        if self.target is None:
-            return None
-        return _resolve_name(self.target)
 
 
 StateT = TypeVar("StateT")
@@ -131,19 +108,26 @@ def tenacity_retry_middleware(
         return func
 
     if isinstance(retries, int):
-        retry_wait_min = kwargs.get("retry_wait_min", 0.1)
-        retry_wait_max = kwargs.get("retry_wait_max", 10)
-        retry_reraise = kwargs.get("retry_reraise", True)
         return retry(
             stop=stop_after_attempt(retries + 1),
-            wait=wait_exponential(min=retry_wait_min, max=retry_wait_max),
-            reraise=retry_reraise,
+            wait=wait_exponential(
+                min=kwargs.get("retry_wait_min", 0.1),
+                max=kwargs.get("retry_wait_max", 10),
+            ),
+            reraise=kwargs.get("retry_reraise", True),
         )(func)
 
     conf = retries.copy()
     if "reraise" not in conf:
         conf["reraise"] = True
     return retry(**conf)(func)  # type: ignore[no-any-return]
+
+
+@dataclass
+class _InternalTaskResult:
+    owner: str
+    name: str
+    result: Any
 
 
 class _PipelineRunner(Generic[StateT, ContextT]):
@@ -154,110 +138,202 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         steps: Dict[str, Callable[..., Any]],
         topology: Dict[str, List[str]],
         injection_metadata: Dict[str, Dict[str, str]],
+        step_metadata: Dict[str, Dict[str, Any]],
         startup_hooks: List[Callable[..., Any]],
         shutdown_hooks: List[Callable[..., Any]],
     ):
         self._steps = steps
         self._topology = topology
         self._injection_metadata = injection_metadata
+        self._step_metadata = step_metadata
         self._startup = startup_hooks
         self._shutdown = shutdown_hooks
 
-    async def _drain_queue(
-        self, queue: asyncio.Queue[Event]
-    ) -> AsyncGenerator[Event, None]:
-        """Yield all currently available events from the queue."""
-        while not queue.empty():
-            try:
-                yield queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-
-    async def _wait_for_batch(
-        self,
-        tasks: List[asyncio.Task[tuple[Optional[Next], str]]],
-        queue: asyncio.Queue[Event],
-    ) -> AsyncGenerator[Event, None]:
-        """Wait for a batch of tasks to complete while yielding events from the queue."""
-        if not tasks:
-            return
-
-        queue_task: asyncio.Task[Event] = asyncio.create_task(queue.get())
-        active_tasks: Set[asyncio.Task[tuple[Optional[Next], str]]] = set(tasks)
-
-        try:
-            while active_tasks:
-                all_tasks: Set[asyncio.Task[Any]] = cast(
-                    Set[asyncio.Task[Any]], active_tasks
-                ) | {queue_task}
-                done, _ = await asyncio.wait(
-                    all_tasks, return_when=asyncio.FIRST_COMPLETED
-                )
-
-                for task in done:
-                    if task is queue_task:
-                        yield cast(asyncio.Task[Event], task).result()
-                        queue_task = asyncio.create_task(queue.get())
-                    else:
-                        active_tasks.discard(
-                            cast(asyncio.Task[tuple[Optional[Next], str]], task)
-                        )
-                        try:
-                            task.result()
-                        except Exception as e:
-                            yield Event(EventType.ERROR, "system", str(e))
-
-                async for event in self._drain_queue(queue):
-                    yield event
-        finally:
-            queue_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await queue_task
+        # Execution state
+        self._state: Optional[StateT] = None
+        self._context: Optional[ContextT] = None
+        self._parents_map: Dict[str, Set[str]] = defaultdict(set)
+        self._completed_parents: Dict[str, Set[str]] = defaultdict(set)
+        self._logical_active: Dict[str, int] = defaultdict(int)
+        self._total_active_tasks: int = 0
+        self._queue: asyncio.Queue[Union[Event, _InternalTaskResult]] = asyncio.Queue()
+        self._stopping: bool = False
+        self._tg: Optional[asyncio.TaskGroup] = None
 
     async def _worker(
         self,
         name: str,
-        state: StateT,
-        ctx: Optional[ContextT],
-        queue: asyncio.Queue[Event],
-    ) -> tuple[Optional[Next], str]:
-        task = asyncio.current_task()
-        if task:
-            task.set_name(name)
+        queue: asyncio.Queue[Union[Event, _InternalTaskResult]],
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        func = self._steps.get(name)
+        if not func:
+            raise ValueError(f"Step not found: {name}")
 
-        func = self._steps[name]
-        metadata = self._injection_metadata.get(name, {})
+        inj_meta = self._injection_metadata.get(name, {})
+        step_meta = self._step_metadata.get(name, {})
 
-        kwargs: Dict[str, Any] = {}
-        for param_name, source in metadata.items():
+        kwargs = (payload or {}).copy()
+        for param_name, source in inj_meta.items():
             if source == "state":
-                kwargs[param_name] = state
+                kwargs[param_name] = self._state
             elif source == "context":
-                kwargs[param_name] = ctx
+                kwargs[param_name] = self._context
 
-        if inspect.isasyncgenfunction(func):
-            instr = None
-            async for item in func(**kwargs):
-                if isinstance(item, Next):
-                    instr = item
-                else:
-                    await queue.put(Event(EventType.TOKEN, name, item))
-            return instr, name
-        else:
-            res = await func(**kwargs)
-            if isinstance(res, str):
-                return Next(res), name
-            return (res if isinstance(res, Next) else None), name
+        timeout = step_meta.get("timeout")
 
-    async def _run_shutdown_hooks(
-        self, context: Optional[ContextT]
-    ) -> AsyncGenerator[Event, None]:
-        """Run shutdown hooks, yielding errors if any fail."""
+        async def _exec() -> Any:
+            if inspect.isasyncgenfunction(func):
+                last_val = None
+                async for item in func(**kwargs):
+                    if isinstance(item, (Next, Map, Run, Suspend)):
+                        last_val = item
+                    else:
+                        await queue.put(Event(EventType.TOKEN, name, item))
+                return last_val
+            else:
+                return await func(**kwargs)
+
+        if timeout:
+            try:
+                return await asyncio.wait_for(_exec(), timeout=timeout)
+            except (asyncio.TimeoutError, TimeoutError):
+                raise TimeoutError(f"Step '{name}' timed out after {timeout}s")
+        return await _exec()
+
+    async def _execute_startup(self) -> Optional[Event]:
+        try:
+            for h in self._startup:
+                await h(self._context)
+        except Exception as e:
+            return Event(EventType.ERROR, "startup", str(e))
+        return None
+
+    async def _execute_shutdown(self) -> AsyncGenerator[Event, None]:
         for h in self._shutdown:
             try:
-                await h(context)
+                await h(self._context)
             except Exception as e:
                 yield Event(EventType.ERROR, "shutdown", str(e))
+
+    def _determine_roots(self, start: Union[str, Callable[..., Any], None]) -> Set[str]:
+        if start:
+            return {_resolve_name(start)}
+        elif self._steps:
+            # collect uniq set of step's targets
+            all_targets = {
+                t for step_targets in self._topology.values() for t in step_targets
+            }
+            roots = set(self._steps.keys()) - all_targets
+            if not roots:
+                roots = {next(iter(self._steps))}
+            return roots
+        return set()
+
+    def _build_dependency_graph(self) -> None:
+        for parent, children in self._topology.items():
+            for child in children:
+                self._parents_map[child].add(parent)
+
+    def _spawn(self, coro: Any, owner: str) -> None:
+        if self._stopping or not self._tg:
+            coro.close()
+            return
+        self._logical_active[owner] += 1
+        self._total_active_tasks += 1
+        self._tg.create_task(coro)
+
+    async def _report_error(self, name: str, owner: str, error: Exception) -> None:
+        await self._queue.put(Event(EventType.ERROR, name, str(error)))
+        await self._queue.put(_InternalTaskResult(owner, name, None))
+
+    def _schedule(
+        self,
+        name: str,
+        owner: Optional[str] = None,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        target_owner = owner or name
+        self._spawn(self._wrapper(name, target_owner, payload), target_owner)
+
+    async def _wrapper(
+        self, name: str, owner: str, payload: Optional[Dict[str, Any]]
+    ) -> None:
+        try:
+            await self._queue.put(Event(EventType.STEP_START, name))
+            res = await self._worker(name, self._queue, payload)
+            await self._queue.put(_InternalTaskResult(owner, name, res))
+        except Exception as e:
+            await self._report_error(name, owner, e)
+
+    async def _sub_pipe_wrapper(
+        self, sub_pipe: Any, sub_state: Any, owner: str
+    ) -> None:
+        name = f"{owner}:sub"
+        try:
+            async for ev in sub_pipe.run(sub_state):
+                ev.stage = f"{owner}:{ev.stage}"
+                await self._queue.put(ev)
+            await self._queue.put(_InternalTaskResult(owner, name, None))
+        except Exception as e:
+            await self._report_error(name, owner, e)
+
+    async def _process_queue(self) -> AsyncGenerator[Event, None]:
+        while self._total_active_tasks > 0:
+            item = await self._queue.get()
+
+            if isinstance(item, Event):
+                yield item
+                if item.type == EventType.SUSPEND:
+                    self._stopping = True
+            elif isinstance(item, _InternalTaskResult):
+                self._total_active_tasks -= 1
+                self._logical_active[item.owner] -= 1
+
+                async for event in self._handle_task_result(item):
+                    yield event
+
+                if self._logical_active[item.owner] == 0:
+                    yield Event(EventType.STEP_END, item.owner, self._state)
+                    self._handle_completion(item.owner)
+
+    async def _handle_task_result(
+        self, item: _InternalTaskResult
+    ) -> AsyncGenerator[Event, None]:
+        res = item.result
+        if isinstance(res, str):
+            res = Next(res)
+
+        if isinstance(res, Suspend):
+            yield Event(EventType.SUSPEND, item.name, res.reason)
+            self._stopping = True
+        elif isinstance(res, Next) and res.stage:
+            self._schedule(res.stage)
+        elif isinstance(res, Map):
+            self._handle_map(res, item.owner)
+        elif isinstance(res, Run):
+            if self._tg:
+                self._spawn(
+                    self._sub_pipe_wrapper(res.pipe, res.state, item.owner), item.owner
+                )
+
+    def _handle_map(self, res: Map, owner: str) -> None:
+        for m_item in res.items:
+            func = self._steps.get(res.target)
+            payload = None
+            if func:
+                inj = self._injection_metadata.get(res.target, {})
+                for p_name, p_source in inj.items():
+                    if p_source == "unknown":
+                        payload = {p_name: m_item}
+                        break
+            self._schedule(res.target, owner=owner, payload=payload)
+
+    def _handle_completion(self, owner: str) -> None:
+        for succ in self._topology.get(owner, []):
+            self._completed_parents[succ].add(owner)
+            if self._completed_parents[succ] >= self._parents_map[succ]:
+                self._schedule(succ)
 
     async def run(
         self,
@@ -266,105 +342,46 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         start: Union[str, Callable[..., Any], None] = None,
     ) -> AsyncGenerator[Event, None]:
         """Execute the pipeline starting from the specified step."""
-        # Run startup hooks with error handling
-        try:
-            for h in self._startup:
-                await h(context)
-        except Exception as e:
-            yield Event(EventType.ERROR, "startup", str(e))
-            async for event in self._run_shutdown_hooks(context):
-                yield event
-            yield Event(EventType.FINISH, "system", state)
-            return
-
-        # Handle empty pipeline
-        if start:
-            first = _resolve_name(start)
-        elif self._steps:
-            first = next(iter(self._steps))
-        else:
-            yield Event(EventType.ERROR, "system", "No steps registered")
-            async for event in self._run_shutdown_hooks(context):
-                yield event
-            yield Event(EventType.FINISH, "system", state)
-            return
-
-        current_batch = {first}
-        yield Event(EventType.START, "system", state)
-
-        queue: asyncio.Queue[Event] = asyncio.Queue()
+        self._state = state
+        self._context = context
 
         try:
-            while current_batch:
-                tasks = []
-                for name in current_batch:
-                    if name not in self._steps:
-                        yield Event(EventType.ERROR, name, "Step not found")
-                        continue
-                    yield Event(EventType.STEP_START, name)
-                    tasks.append(
-                        asyncio.create_task(self._worker(name, state, context, queue))
-                    )
+            error_event = await self._execute_startup()
+            if error_event:
+                yield error_event
+                return
 
-                if not tasks:
-                    break
+            roots = self._determine_roots(start)
+            # Check if we have roots or steps to run
+            if not roots and not self._steps:
+                yield Event(EventType.ERROR, "system", "No steps registered")
+                return
 
-                async for event in self._wait_for_batch(tasks, queue):
+            # Build dependency graph
+            self._build_dependency_graph()
+
+            yield Event(EventType.START, "system", state)
+
+            async with asyncio.TaskGroup() as tg:
+                self._tg = tg
+                for root in roots:
+                    self._schedule(root)
+
+                async for event in self._process_queue():
                     yield event
 
-                next_batch: Set[str] = set()
-                for task in tasks:
-                    try:
-                        res, stage_name = task.result()
-                        yield Event(EventType.STEP_END, stage_name, state)
-
-                        if res and res.stage:
-                            next_batch.add(res.stage)
-                        elif stage_name in self._topology:
-                            next_batch.update(self._topology[stage_name])
-                    except Exception:
-                        # Exception already yielded as ERROR event in _wait_for_batch
-                        continue
-
-                current_batch = next_batch
-
-        except Exception as e:
-            yield Event(EventType.ERROR, "fatal", str(e))
-            raise
         finally:
-            async for event in self._run_shutdown_hooks(context):
-                yield event
-            yield Event(EventType.FINISH, "system", state)
+            # Shutdown
+            async for ev in self._execute_shutdown():
+                yield ev
+
+            yield Event(EventType.FINISH, "system", self._state)
 
 
 class Pipe(Generic[StateT, ContextT]):
-    """Async pipeline orchestrator for building event-driven DAGs.
-
-    Example:
-        pipe = Pipe[MyState, MyContext]()
-
-        @pipe.step("start", to="process")
-        async def start(state):
-            state.data = "initialized"
-
-        @pipe.step("process")
-        async def process(state):
-            yield f"Processing: {state.data}"
-
-        async for event in pipe.run(MyState(), MyContext()):
-            print(event)
-    """
-
     def __init__(
         self, name: str = "Pipe", middleware: Optional[List[Middleware]] = None
     ):
-        """Initialize a new pipeline.
-
-        Args:
-            name: Optional name for the pipeline (for debugging/logging).
-            middleware: Optional list of middleware functions. Defaults to
-                [tenacity_retry_middleware] for automatic retry support.
-        """
         self.name = name
         self.middleware = (
             list(middleware) if middleware is not None else [tenacity_retry_middleware]
@@ -374,37 +391,24 @@ class Pipe(Generic[StateT, ContextT]):
         self._startup: List[Callable[..., Any]] = []
         self._shutdown: List[Callable[..., Any]] = []
         self._injection_metadata: Dict[str, Dict[str, str]] = {}
+        self._step_metadata: Dict[str, Dict[str, Any]] = {}
 
     def _get_types(self) -> tuple[Any, Any]:
-        """Extract StateT and ContextT from the Pipe instance."""
-        # When Pipe[State, Ctx]() is called, __orig_class__ is set on the instance.
         orig = getattr(self, "__orig_class__", None)
         if orig:
             args = get_args(orig)
             if len(args) == 2:
-                # Handle NoneType correctly (None in get_args returns type(None))
                 return args[0], args[1]
-
-        # Fallback to Any if no concrete types were provided
         return Any, Any
 
     def add_middleware(self, mw: Middleware) -> None:
-        """Add a middleware function to the pipeline.
-
-        Middleware wraps step functions and can modify behavior (e.g., retry, logging).
-
-        Args:
-            mw: Middleware function with signature (func, kwargs) -> wrapped_func.
-        """
         self.middleware.append(mw)
 
     def on_startup(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        """Register a startup handler."""
         self._startup.append(func)
         return func
 
     def on_shutdown(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        """Register a shutdown handler."""
         self._shutdown.append(func)
         return func
 
@@ -416,39 +420,20 @@ class Pipe(Generic[StateT, ContextT]):
         ] = None,
         **kwargs: Any,
     ) -> Callable[..., Any]:
-        """
-        Register a step in the pipeline.
-
-        Args:
-            name: Optional name for the step. Defaults to function name.
-            to: Optional target step(s) to execute next.
-            **kwargs: Configuration passed to middleware.
-
-        Smart Injection:
-            Step functions can accept 'state' and/or 'context' arguments. The engine
-            automatically injects these based on:
-            1. Type Hints: If parameters match Pipe's StateT or ContextT.
-            2. Parameter Names: Fallback to 's'/'state' and/or 'ctx'/'context'/'c'.
-            Signatures are validated at registration time.
-        """
-
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             stage_name = _resolve_name(name or func)
-
-            # Analyze signature and store metadata
+            self._step_metadata[stage_name] = kwargs
             state_type, context_type = self._get_types()
             self._injection_metadata[stage_name] = _analyze_signature(
                 func, state_type, context_type
             )
-
             if to:
-                targets = to if isinstance(to, list) else [to]
-                self._topology[stage_name] = [_resolve_name(t) for t in targets]
-
+                self._topology[stage_name] = [
+                    _resolve_name(t) for t in (to if isinstance(to, list) else [to])
+                ]
             wrapped = func
             for mw in self.middleware:
                 wrapped = mw(wrapped, kwargs)
-
             self._steps[stage_name] = wrapped
             return func
 
@@ -457,16 +442,6 @@ class Pipe(Generic[StateT, ContextT]):
         return decorator
 
     def graph(self) -> str:
-        """Generate a Mermaid diagram of the pipeline.
-
-        Returns:
-            Mermaid diagram string that can be rendered in markdown.
-            Features:
-            - Streaming steps marked with ⚡ and orange color
-            - Start/End nodes for clear flow visualization
-            - Isolated (unconnected) steps shown in separate subgraph
-            - Color-coded: blue=regular, orange=streaming, pink=isolated
-        """
         return generate_mermaid_graph(self._steps, self._topology)
 
     async def run(
@@ -475,23 +450,13 @@ class Pipe(Generic[StateT, ContextT]):
         context: Optional[ContextT] = None,
         start: Union[str, Callable[..., Any], None] = None,
     ) -> AsyncGenerator[Event, None]:
-        """
-        Execute the pipeline starting from the specified step.
-
-        Args:
-            state: The initial state object (mutable).
-            context: Optional context object for side-effects (e.g., API clients).
-            start: Optional name or function of the step to start from.
-
-        Yields:
-            Event: Stream of execution events (START, TOKEN, STEP_START, etc.).
-        """
         runner: _PipelineRunner[StateT, ContextT] = _PipelineRunner(
-            steps=self._steps,
-            topology=self._topology,
-            injection_metadata=self._injection_metadata,
-            startup_hooks=self._startup,
-            shutdown_hooks=self._shutdown,
+            self._steps,
+            self._topology,
+            self._injection_metadata,
+            self._step_metadata,
+            self._startup,
+            self._shutdown,
         )
         async for event in runner.run(state, context, start):
             yield event

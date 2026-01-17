@@ -1,79 +1,128 @@
+import asyncio
 import pytest
+from unittest.mock import patch
+from typing import Any, Callable, Dict
 from justpipe import Pipe
 
 
-@pytest.mark.asyncio
-async def test_add_middleware():
-    pipe = Pipe()
+def test_middleware_application() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
     log = []
 
-    def logging_middleware(func, kwargs):
-        async def wrapper(state, context):
+    def logging_middleware(
+        func: Callable[..., Any], kwargs: Dict[str, Any]
+    ) -> Callable[..., Any]:
+        async def wrapped(*args: Any, **kw: Any) -> Any:
             log.append("before")
-            res = await func(state, context)
+            res = await func(*args, **kw)
             log.append("after")
             return res
 
-        return wrapper
+        return wrapped
 
     pipe.add_middleware(logging_middleware)
 
     @pipe.step("test")
-    async def step_test(s, c):
-        log.append("inside")
+    async def test() -> None:
+        log.append("exec")
 
-    await pipe._steps["test"]({}, None)
-    assert log == ["before", "inside", "after"]
+    async def run_one() -> None:
+        await pipe.run({}).__aiter__().__anext__()
+
+    asyncio.run(run_one())  # Run one step
+    # Wait, we need to run the whole pipe properly
+
+    async def run_pipe() -> None:
+        async for _ in pipe.run({}):
+            pass
+
+    asyncio.run(run_pipe())
+
+    assert log == ["before", "exec", "after"]
 
 
-@pytest.mark.asyncio
-async def test_middleware_order():
-    pipe = Pipe()
-    log = []
+def test_middleware_kwargs_passing() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
+    captured_kwargs = {}
 
-    def mw1(func, kwargs):
-        async def wrapper(s, c):
-            log.append("1_in")
-            res = await func(s, c)
-            log.append("1_out")
-            return res
+    def capture_middleware(
+        func: Callable[..., Any], kwargs: Dict[str, Any]
+    ) -> Callable[..., Any]:
+        captured_kwargs.update(kwargs)
+        return func
 
-        return wrapper
+    pipe.add_middleware(capture_middleware)
 
-    def mw2(func, kwargs):
-        async def wrapper(s, c):
-            log.append("2_in")
-            res = await func(s, c)
-            log.append("2_out")
-            return res
+    @pipe.step("test", foo="bar", limit=10)
+    async def test() -> None:
+        pass
 
-        return wrapper
+    assert captured_kwargs == {"foo": "bar", "limit": 10}
+
+
+def test_middleware_chaining() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
+    order = []
+
+    def mw1(func: Callable[..., Any], kw: Dict[str, Any]) -> Callable[..., Any]:
+        async def w(*a: Any, **k: Any) -> Any:
+            order.append(1)
+            return await func(*a, **k)
+
+        return w
+
+    def mw2(func: Callable[..., Any], kw: Dict[str, Any]) -> Callable[..., Any]:
+        async def w(*a: Any, **k: Any) -> Any:
+            order.append(2)
+            return await func(*a, **k)
+
+        return w
 
     pipe.add_middleware(mw1)
     pipe.add_middleware(mw2)
 
-    @pipe.step("test")
-    async def step_test(s, c):
-        log.append("core")
+    @pipe.step("t")
+    async def t() -> None:
+        order.append(3)
 
-    await pipe._steps["test"]({}, None)
+    async def run() -> None:
+        async for _ in pipe.run({}):
+            pass
 
-    # Outer middleware (mw2) wraps inner (mw1)
-    assert log == ["2_in", "1_in", "core", "1_out", "2_out"]
+    asyncio.run(run())
+
+    # Middleware applied in order: mw2(mw1(func)) because of loop order
+    # Execution: mw2 -> mw1 -> func
+    assert order == [2, 1, 3]
 
 
-@pytest.mark.asyncio
-async def test_tenacity_retry():
-    pipe = Pipe()
-    count = 0
+def test_retry_middleware_integration() -> None:
+    # This tests the default retry middleware
+    pipe: Pipe[Any, Any] = Pipe()
+    attempts = 0
 
-    @pipe.step("retry_test", retries=2)
-    async def fail_twice():
-        nonlocal count
-        count += 1
-        if count < 3:
+    @pipe.step("fail_twice", retries=2, retry_wait_min=0.01)
+    async def fail_twice() -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
             raise ValueError("fail")
-        return "success"
 
-    await pipe._steps["retry_test"]()
-    assert count == 3
+    async def run() -> None:
+        async for _ in pipe.run({}):
+            pass
+
+    asyncio.run(run())
+    assert attempts == 3
+
+
+def test_tenacity_missing_warning() -> None:
+    """Verify warning when tenacity is requested but missing."""
+    with patch("justpipe.core.HAS_TENACITY", False):
+        pipe: Pipe[Any, Any] = Pipe()
+
+        with pytest.warns(UserWarning, match="tenacity"):
+
+            @pipe.step("retry_step", retries=1)
+            async def retry_step() -> None:
+                pass

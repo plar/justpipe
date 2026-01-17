@@ -44,6 +44,7 @@ dev = [
     "pytest-cov>=7.0.0",
     "ruff>=0.1.0",
     "coverage-badge>=1.1.0",
+    "pytest-repeat>=0.9.4",
 ]
 
 [tool.pytest.ini_options]

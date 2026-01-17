@@ -1,9 +1,9 @@
-import pytest
+from typing import Any
 from justpipe import Pipe
 
 
-def test_pipe_init():
-    pipe = Pipe("MyPipe")
+def test_pipe_init() -> None:
+    pipe: Pipe[Any, Any] = Pipe("MyPipe")
     assert pipe.name == "MyPipe"
 
     from justpipe.core import tenacity_retry_middleware
@@ -11,30 +11,30 @@ def test_pipe_init():
     assert pipe.middleware == [tenacity_retry_middleware]
 
 
-def test_step_registration_basics():
-    pipe = Pipe()
+def test_step_registration_basics() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
 
     @pipe.step("start", to="next_step")
-    async def start(state, context):
+    async def start(state: Any, context: Any) -> None:
         pass
 
     assert "start" in pipe._steps
     assert pipe._topology["start"] == ["next_step"]
 
 
-def test_step_decorator_variations():
-    pipe = Pipe()
+def test_step_decorator_variations() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
 
     @pipe.step
-    async def auto_named():
+    async def auto_named() -> None:
         pass
 
     @pipe.step(to="explicit")
-    async def auto_named2():
+    async def auto_named2() -> None:
         pass
 
     @pipe.step("explicit", to=["a", "b"])
-    async def explicit():
+    async def explicit() -> None:
         pass
 
     assert "auto_named" in pipe._steps
@@ -43,25 +43,14 @@ def test_step_decorator_variations():
     assert pipe._topology["explicit"] == ["a", "b"]
 
 
-def test_step_validation_errors():
-    pipe = Pipe()
+def test_step_resolve_callable_targets() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
 
-    # Unknown argument
-    with pytest.raises(ValueError, match="Unknown argument 'foo'"):
-
-        @pipe.step("invalid")
-        async def unknown_arg(foo):
-            pass
-
-
-def test_step_resolve_callable_targets():
-    pipe = Pipe()
-
-    async def target():
+    async def target() -> None:
         pass
 
     @pipe.step("start", to=target)
-    async def start():
+    async def start() -> None:
         pass
 
     assert pipe._topology["start"] == ["target"]

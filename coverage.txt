@@ -3,17 +3,19 @@ platform linux -- Python 3.12.12, pytest-9.0.2, pluggy-1.6.0
 rootdir: /home/runner/work/justpipe/justpipe
 configfile: pyproject.toml
 testpaths: tests
-plugins: cov-7.0.0, asyncio-1.3.0
+plugins: cov-7.0.0, asyncio-1.3.0, repeat-0.9.4
 asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
-collected 50 items
+collected 69 items
 
-tests/functional/test_edge_cases.py .......                              [ 14%]
+tests/functional/test_advanced_flow.py .........                         [ 13%]
+tests/functional/test_edge_cases.py .......                              [ 23%]
 tests/functional/test_execution.py ...............                       [ 44%]
-tests/functional/test_middleware.py ...                                  [ 50%]
-tests/functional/test_registration.py .....                              [ 60%]
-tests/functional/test_visualization.py .....                             [ 70%]
-tests/integration/test_acceptance.py .                                   [ 72%]
-tests/unit/test_core_utils.py .........                                  [ 90%]
+tests/functional/test_middleware.py .....                                [ 52%]
+tests/functional/test_registration.py ....                               [ 57%]
+tests/functional/test_shutdown.py ..                                     [ 60%]
+tests/functional/test_visualization.py ............                      [ 78%]
+tests/integration/test_acceptance.py .                                   [ 79%]
+tests/unit/test_core_utils.py .........                                  [ 92%]
 tests/unit/test_structures.py .....                                      [100%]
 
 ================================ tests coverage ================================
@@ -21,9 +23,10 @@ _______________ coverage: platform linux, python 3.12.12-final-0 _______________
 
 Name                        Stmts   Miss  Cover   Missing
 ---------------------------------------------------------
-justpipe/__init__.py            2      0   100%
-justpipe/core.py              244     14    94%   29-30, 121-125, 173-174, 183, 242, 249, 276, 288, 331-333
-justpipe/visualization.py     105      3    97%   75, 77, 104
+justpipe/__init__.py            3      0   100%
+justpipe/core.py              277     14    95%   35-47, 190, 229, 278-279, 288, 305
+justpipe/types.py              42      0   100%
+justpipe/visualization.py     105      2    98%   75, 168
 ---------------------------------------------------------
-TOTAL                         351     17    95%
-============================== 50 passed in 6.25s ==============================
+TOTAL                         427     16    96%
+============================== 69 passed in 3.46s ==============================

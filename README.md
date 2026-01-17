@@ -26,14 +26,15 @@ from justpipe import Pipe, EventType
 class State:
     message: str = ""
 
-pipe = Pipe()
+# Type-safe pipeline definition
+pipe = Pipe[State, None]()
 
 @pipe.step(to="respond")
-async def greet(state):
+async def greet(state: State):
     state.message = "Hello"
 
 @pipe.step()
-async def respond(state):
+async def respond(state: State):
     yield f"{state.message}, World!"
 
 async def main():
@@ -47,15 +48,19 @@ asyncio.run(main())
 
 ## Features
 
-- **Zero dependencies** - Core library has no required dependencies
-- **Async-first** - Built on asyncio for non-blocking execution
-- **Streaming** - Yield tokens from any step using async generators
-- **Type-safe** - Full generic type support with `Pipe[StateT, ContextT]`
-- **Smart injection** - Automatic state/context injection based on parameter names or types
-- **Parallel execution** - Fan-out to multiple steps with implicit barrier synchronization
-- **Dynamic routing** - Return `Next("step_name")` for runtime branching
-- **Middleware** - Extensible with retry, logging, or custom middleware
-- **Visualization** - Generate Mermaid diagrams with `pipe.graph()`
+- **Python 3.12+** - Leveraging modern `asyncio.TaskGroup` and generics.
+- **Zero dependencies** - Core library has no required dependencies.
+- **Async-first** - Built on `asyncio` for non-blocking execution.
+- **Streaming** - Yield tokens from any step using async generators.
+- **Type-safe** - Full generic type support with `Pipe[StateT, ContextT]`.
+- **Smart injection** - Automatic state/context injection based on parameter names (`state`, `ctx`) or types.
+- **Parallel execution** - Fan-out to multiple steps with implicit barrier synchronization.
+- **Dynamic routing** - Return `Next("step_name")` for runtime branching.
+- **Dynamic Parallelism** - Return `Map(items=[...], target="step")` to spawn dynamic workers.
+- **Composition** - Return `Run(pipe=sub, state=...)` to execute sub-pipelines.
+- **Suspension** - Return `Suspend(reason=...)` to pause execution mid-flow.
+- **Middleware** - Extensible with retry, logging, or custom middleware.
+- **Visualization** - Generate Mermaid diagrams with `pipe.graph()`.
 
 ```mermaid
 graph TD
@@ -107,7 +112,9 @@ graph TD
     class Start,End startEnd;
 ```
 
-## Parallel Execution
+## Parallel Execution (DAG)
+
+Static parallelism is defined by linking one step to multiple targets.
 
 ```python
 @pipe.step("start", to=["fetch_a", "fetch_b"])
@@ -124,11 +131,32 @@ async def fetch_b(state):
 
 @pipe.step("combine")
 async def combine(state):
-    # Runs after BOTH fetch_a and fetch_b complete
+    # Implicit Barrier: Runs only after BOTH fetch_a and fetch_b complete
     state.result = state.a + state.b
 ```
 
+## Dynamic Parallelism (Map)
+
+Use `Map` to process a list of items in parallel.
+
+```python
+from justpipe import Map
+
+@pipe.step("process_batch")
+async def process_batch(state):
+    # Spawns 'worker' step for each item in the list
+    # 'target' must be a registered step name
+    return Map(items=[1, 2, 3], target="worker")
+
+@pipe.step("worker")
+async def worker(item: int, state):
+    # 'item' is injected automatically because it's not a state/context arg
+    print(f"Processing {item}")
+```
+
 ## Dynamic Routing
+
+Use `Next` to change flow at runtime.
 
 ```python
 from justpipe import Next
@@ -138,6 +166,36 @@ async def decide(state):
     if state.value > 0:
         return Next("positive_handler")
     return Next("negative_handler")
+```
+
+## Suspension
+
+Use `Suspend` to pause execution. The event stream will yield a `SUSPEND` event and then finish.
+
+```python
+from justpipe import Suspend
+
+@pipe.step("validate")
+async def validate(state):
+    if not state.is_ready:
+        return Suspend(reason="wait_for_human")
+```
+
+## Sub-pipelines
+
+Compose complex workflows by running other pipelines.
+
+```python
+from justpipe import Run
+
+sub_pipe = Pipe()
+# ... define sub_pipe steps ...
+
+@pipe.step("execute_sub")
+async def execute_sub(state):
+    # Executes the sub-pipeline with the current state (or a new one)
+    # Events from sub_pipe are namespaced (e.g., "execute_sub:step_name")
+    return Run(pipe=sub_pipe, state=state)
 ```
 
 ## Streaming Tokens
@@ -151,18 +209,39 @@ async def stream(state):
 
 ## Retry with Tenacity
 
+justpipe has built-in support for `tenacity` if installed.
+
 ```bash
 pip install "justpipe[retry]"
 ```
 
 ```python
-@pipe.step("flaky_api", retries=3)
+@pipe.step("flaky_api", retries=3, retry_wait_min=0.1)
 async def flaky_api(state):
+    # Will automatically retry on exception
     response = await unreliable_api_call()
-    state.data = response
+```
+
+## Middleware
+
+Middleware wraps every step execution. Useful for logging, tracing, or error handling.
+
+```python
+def logging_middleware(func, kwargs):
+    async def wrapped(*args, **kw):
+        print(f"Starting {func.__name__}")
+        try:
+            return await func(*args, **kw)
+        finally:
+            print(f"Finished {func.__name__}")
+    return wrapped
+
+pipe.add_middleware(logging_middleware)
 ```
 
 ## Lifecycle Hooks
+
+Hooks are useful for managing external resources like database connections or API clients.
 
 ```python
 @pipe.on_startup
@@ -174,7 +253,20 @@ async def cleanup(context):
     await context.db.close()
 ```
 
+## Timeout Handling
+
+You can specify a `timeout` (in seconds) for any step.
+
+```python
+@pipe.step("api_call", timeout=5.0)
+async def api_call(state):
+    # Raises TimeoutError if it takes longer than 5 seconds
+    await slow_external_api()
+```
+
 ## Event Types
+
+The event stream allows you to monitor and react to the pipeline execution.
 
 ```python
 async for event in pipe.run(state, context):
@@ -189,39 +281,10 @@ async for event in pipe.run(state, context):
             print(f"Step {event.stage} finished")
         case EventType.ERROR:
             print(f"Error: {event.data}")
+        case EventType.SUSPEND:
+             print(f"Suspended: {event.data}")
         case EventType.FINISH:
             print("Pipeline finished")
-```
-
-## Timeout Handling
-
-justpipe doesn't include built-in timeout to keep the API simple. Use Python's `asyncio.timeout()` directly:
-
-```python
-import asyncio
-
-@pipe.step("api_call")
-async def api_call(state):
-    try:
-        async with asyncio.timeout(5.0):
-            state.result = await slow_external_api()
-    except TimeoutError:
-        state.result = None
-        state.error = "API timeout"
-```
-
-For streaming steps, wrap the slow operation:
-
-```python
-@pipe.step("stream_with_timeout")
-async def stream_with_timeout(state):
-    yield "Starting..."
-    try:
-        async with asyncio.timeout(10.0):
-            result = await slow_operation()
-        yield f"Result: {result}"
-    except TimeoutError:
-        yield "Operation timed out"
 ```
 
 ## Development
@@ -241,12 +304,6 @@ uv run ruff check .
 # Run type checks
 uv run mypy justpipe
 ```
-
-## Maintenance
-
-This repository is configured with GitHub Actions to ensure high code quality:
-- **CI**: Runs on every push/PR to `main`, executing Ruff, Mypy, and Pytest.
-- **Coverage**: Reports are generated and tracked to maintain >80% coverage.
 
 ## License
 

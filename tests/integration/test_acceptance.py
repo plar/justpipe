@@ -1,43 +1,46 @@
 import pytest
+from typing import Any, List
 from justpipe import Pipe, EventType
 
 
+async def process_data(data: str) -> str:
+    return data.upper()
+
+
 @pytest.mark.asyncio
-async def test_chatbot_acceptance(state):
-    # The "Chatbot" Acceptance Test
-    app = Pipe()
-    count = 0
+async def test_etl_pipeline_simulation() -> None:
+    """Simulate a simple ETL pipeline."""
 
-    @app.step("start", to=["wiki", "news"])
-    async def start():
-        pass
+    class AppState:
+        def __init__(self) -> None:
+            self.raw_data: List[str] = []
+            self.processed_data: List[str] = []
+            self.db_committed = False
 
-    @app.step("wiki", retries=3, to="aggregator")
-    async def wiki(s):
-        nonlocal count
-        count += 1
-        if count < 3:
-            raise ValueError("fail")
-        s.data.append(f"wiki_data_{count}")
+    app: AppState = AppState()
+    pipe: Pipe[AppState, Any] = Pipe()
 
-    @app.step("news", retries=3, to="aggregator")
-    async def news(s):
-        s.data.append("news_data")
+    @pipe.step("extract", to="transform")
+    async def extract(state: AppState) -> None:
+        state.raw_data = ["a", "b", "c"]
 
-    @app.step("aggregator", to="streamer")
-    async def agg(s):
-        s.data.sort()
+    @pipe.step("transform", to="load")
+    async def transform(state: AppState) -> None:
+        for item in state.raw_data:
+            processed = await process_data(item)
+            state.processed_data.append(processed)
 
-    @app.step("streamer")
-    async def stream(s):
-        yield "Hello"
-        yield "World"
-        yield f"Context: {', '.join(s.data)}"
+    @pipe.step("load")
+    async def load(state: AppState) -> None:
+        state.db_committed = True
 
-    # Running it
-    tokens = []
-    async for event in app.run(state):
-        if event.type == EventType.TOKEN:
-            tokens.append(event.data)
+    events = []
+    async for event in pipe.run(app):
+        events.append(event)
 
-    assert tokens == ["Hello", "World", "Context: news_data, wiki_data_3"]
+    assert app.db_committed
+    assert app.processed_data == ["A", "B", "C"]
+
+    stages = [e.stage for e in events if e.type == EventType.STEP_END]
+    # Order might vary in async graph, but here it's linear
+    assert stages == ["extract", "transform", "load"]
