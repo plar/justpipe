@@ -105,7 +105,7 @@ class MermaidRenderer:
                 case NodeKind.STREAMING:
                     label = f"{label} ⚡"
                     node_def = f'{node_id}(["{label}"])'
-                
+
                 case _:
                     node_def = f'{node_id}["{label}"]'
 
@@ -149,7 +149,7 @@ class MermaidRenderer:
                     self._add(f"{last_hook_id} --> {node_id}", indent + 4)
                 last_hook_id = node_id
             self._add("end", indent)
-            
+
             self._add(f"{prefix}startup --> {start_target_id}", indent)
 
         # Start node
@@ -195,7 +195,6 @@ class MermaidRenderer:
 
         # Render Shutdown Hooks
         if ast.shutdown_hooks and end_source_id:
-            first_hook_id = None
             last_hook_id = None
 
             self._add(f"subgraph {prefix}shutdown[Shutdown Hooks]", indent)
@@ -204,9 +203,6 @@ class MermaidRenderer:
                 node_id = f"{prefix}shutdown_{i}"
                 label = self._format_label(h_name)
                 self._add(f"{node_id}> {label} ]", indent + 4)
-
-                if i == 0:
-                    first_hook_id = node_id
 
                 if last_hook_id:
                     self._add(f"{last_hook_id} --> {node_id}", indent + 4)
