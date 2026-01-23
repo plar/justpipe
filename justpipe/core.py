@@ -183,51 +183,34 @@ def simple_logging_middleware(
 
 
 @dataclass
-class _InternalTaskResult:
+class _StepResult:
     owner: str
     name: str
     result: Any
     payload: Optional[Dict[str, Any]] = None
 
 
-class _PipelineRunner(Generic[StateT, ContextT]):
-    """Internal class that handles pipeline execution, event streaming, and worker management."""
+class StepInvoker(Generic[StateT, ContextT]):
+    """Encapsulates the execution logic for individual pipeline steps."""
 
     def __init__(
         self,
         steps: Dict[str, Callable[..., Any]],
-        topology: Dict[str, List[str]],
         injection_metadata: Dict[str, Dict[str, str]],
         step_metadata: Dict[str, Dict[str, Any]],
-        startup_hooks: List[Callable[..., Any]],
-        shutdown_hooks: List[Callable[..., Any]],
         on_error: Optional[Callable[..., Any]] = None,
-        queue_size: int = 0,
-        event_hooks: Optional[List[Callable[[Event], Event]]] = None,
     ):
         self._steps = steps
-        self._topology = topology
         self._injection_metadata = injection_metadata
         self._step_metadata = step_metadata
-        self._startup = startup_hooks
-        self._shutdown = shutdown_hooks
         self._on_error = on_error
-        self._event_hooks = event_hooks or []
-
-        # Execution state
         self._state: Optional[StateT] = None
         self._context: Optional[ContextT] = None
-        self._parents_map: Dict[str, Set[str]] = defaultdict(set)
-        self._completed_parents: Dict[str, Set[str]] = defaultdict(set)
-        self._logical_active: Dict[str, int] = defaultdict(int)
-        self._total_active_tasks: int = 0
-        self._queue: asyncio.Queue[Union[Event, _InternalTaskResult]] = asyncio.Queue(
-            maxsize=queue_size
-        )
-        self._stopping: bool = False
-        self._tg: Optional[asyncio.TaskGroup] = None
-        self._barrier_tasks: Dict[str, asyncio.Task[Any]] = {}
-        self._skipped_owners: Set[str] = set()
+
+    def set_context(self, state: StateT, context: Optional[ContextT]) -> None:
+        """Set the execution context for the current run."""
+        self._state = state
+        self._context = context
 
     def _resolve_injections(
         self,
@@ -249,12 +232,13 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                 kwargs[param_name] = step_name
         return kwargs
 
-    async def _worker(
+    async def execute(
         self,
         name: str,
-        queue: asyncio.Queue[Union[Event, _InternalTaskResult]],
+        queue: asyncio.Queue[Union[Event, _StepResult]],
         payload: Optional[Dict[str, Any]] = None,
     ) -> Any:
+        """Execute a single step, handling parameter injection and timeouts."""
         func = self._steps.get(name)
         if not func:
             raise ValueError(f"Step not found: {name}")
@@ -285,9 +269,10 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                 raise TimeoutError(f"Step '{name}' timed out after {timeout}s")
         return await _exec()
 
-    async def _execute_handler(
+    async def handle_error(
         self, name: str, error: Exception, use_global: bool = False
     ) -> Any:
+        """Execute error handlers for a failed step."""
         step_meta = self._step_metadata.get(name, {})
         handler = step_meta.get("on_error")
         meta_key = f"{name}:on_error"
@@ -305,7 +290,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                 return handler(**kwargs)
             except Exception as e:
                 if handler != self._on_error and self._on_error:
-                    return await self._execute_handler(name, e, use_global=True)
+                    return await self.handle_error(name, e, use_global=True)
                 raise e
 
         self._default_error_handler(name, error)
@@ -323,26 +308,35 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             f"Stack trace:\n{stack}"
         )
 
-    async def _execute_startup(self) -> Optional[Event]:
-        try:
-            for h in self._startup:
-                await h(self._context)
-        except Exception as e:
-            return Event(EventType.ERROR, "startup", str(e))
-        return None
 
-    async def _execute_shutdown(self) -> AsyncGenerator[Event, None]:
-        for h in self._shutdown:
-            try:
-                await h(self._context)
-            except Exception as e:
-                yield Event(EventType.ERROR, "shutdown", str(e))
+class DependencyGraph:
+    """Encapsulates the pipeline topology and dependency tracking."""
 
-    def _determine_roots(self, start: Union[str, Callable[..., Any], None]) -> Set[str]:
+    def __init__(
+        self,
+        steps: Dict[str, Callable[..., Any]],
+        topology: Dict[str, List[str]],
+        step_metadata: Dict[str, Dict[str, Any]],
+    ):
+        self._steps = steps
+        self._topology = topology
+        self._step_metadata = step_metadata
+        self._parents_map: Dict[str, Set[str]] = defaultdict(set)
+        self._completed_parents: Dict[str, Set[str]] = defaultdict(set)
+
+    def build(self) -> None:
+        """Build the reverse dependency graph (parents map)."""
+        self._parents_map.clear()
+        self._completed_parents.clear()
+        for parent, children in self._topology.items():
+            for child in children:
+                self._parents_map[child].add(parent)
+
+    def get_roots(self, start: Union[str, Callable[..., Any], None] = None) -> Set[str]:
+        """Determine entry points for execution."""
         if start:
             return {_resolve_name(start)}
         elif self._steps:
-            # collect uniq set of step's targets (from topology and map/switch metadata)
             all_targets = {
                 t for step_targets in self._topology.values() for t in step_targets
             }
@@ -360,10 +354,89 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             return roots
         return set()
 
-    def _build_dependency_graph(self) -> None:
-        for parent, children in self._topology.items():
-            for child in children:
-                self._parents_map[child].add(parent)
+    def get_successors(self, node: str) -> List[str]:
+        return self._topology.get(node, [])
+
+    def mark_completed(
+        self, owner: str, succ: str
+    ) -> tuple[bool, bool, Optional[float]]:
+        """
+        Mark a dependency as satisfied.
+        Returns: (is_ready, cancel_timeout, schedule_timeout)
+        """
+        is_first = len(self._completed_parents[succ]) == 0
+        self._completed_parents[succ].add(owner)
+        parents_needed = self._parents_map[succ]
+
+        is_ready = self._completed_parents[succ] >= parents_needed
+        cancel_timeout = is_ready
+        
+        schedule_timeout = None
+        if not is_ready and is_first and len(parents_needed) > 1:
+            schedule_timeout = self._step_metadata.get(succ, {}).get("barrier_timeout")
+
+        return is_ready, cancel_timeout, schedule_timeout
+
+    def is_barrier_satisfied(self, node: str) -> bool:
+        return self._completed_parents[node] >= self._parents_map[node]
+
+
+class _PipelineRunner(Generic[StateT, ContextT]):
+    """Internal class that handles pipeline execution, event streaming, and worker management."""
+
+    def __init__(
+        self,
+        steps: Dict[str, Callable[..., Any]],
+        topology: Dict[str, List[str]],
+        injection_metadata: Dict[str, Dict[str, str]],
+        step_metadata: Dict[str, Dict[str, Any]],
+        startup_hooks: List[Callable[..., Any]],
+        shutdown_hooks: List[Callable[..., Any]],
+        on_error: Optional[Callable[..., Any]] = None,
+        queue_size: int = 0,
+        event_hooks: Optional[List[Callable[[Event], Event]]] = None,
+    ):
+        self._steps = steps
+        self._topology = topology
+        self._step_metadata = step_metadata
+        self._startup = startup_hooks
+        self._shutdown = shutdown_hooks
+        self._event_hooks = event_hooks or []
+        self._injection_metadata = injection_metadata
+
+        # Execution state
+        self._state: Optional[StateT] = None
+        self._context: Optional[ContextT] = None
+        self._logical_active: Dict[str, int] = defaultdict(int)
+        self._total_active_tasks: int = 0
+        self._queue: asyncio.Queue[Union[Event, _StepResult]] = asyncio.Queue(
+            maxsize=queue_size
+        )
+        self._stopping: bool = False
+        self._tg: Optional[asyncio.TaskGroup] = None
+        self._barrier_tasks: Dict[str, asyncio.Task[Any]] = {}
+        self._skipped_owners: Set[str] = set()
+
+        # Components
+        self._invoker: StepInvoker[StateT, ContextT] = StepInvoker(
+            steps, injection_metadata, step_metadata, on_error
+        )
+        self._graph = DependencyGraph(steps, topology, step_metadata)
+
+    async def _execute_startup(self) -> Optional[Event]:
+        try:
+            for h in self._startup:
+                await h(self._context)
+        except Exception as e:
+            return Event(EventType.ERROR, "startup", str(e))
+        return None
+
+    async def _execute_shutdown(self) -> AsyncGenerator[Event, None]:
+        for h in self._shutdown:
+            try:
+                await h(self._context)
+            except Exception as e:
+                yield Event(EventType.ERROR, "shutdown", str(e))
 
     def _spawn(self, coro: Any, owner: str) -> None:
         if self._stopping or not self._tg:
@@ -375,7 +448,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
 
     async def _report_error(self, name: str, owner: str, error: Exception) -> None:
         await self._queue.put(Event(EventType.ERROR, name, str(error)))
-        await self._queue.put(_InternalTaskResult(owner, name, None))
+        await self._queue.put(_StepResult(owner, name, None))
 
     def _schedule(
         self,
@@ -391,12 +464,12 @@ class _PipelineRunner(Generic[StateT, ContextT]):
     ) -> None:
         try:
             await self._queue.put(Event(EventType.STEP_START, name))
-            res = await self._worker(name, self._queue, payload)
-            await self._queue.put(_InternalTaskResult(owner, name, res, payload))
+            res = await self._invoker.execute(name, self._queue, payload)
+            await self._queue.put(_StepResult(owner, name, res, payload))
         except Exception as e:
             try:
-                res = await self._execute_handler(name, e)
-                await self._queue.put(_InternalTaskResult(owner, name, res, payload))
+                res = await self._invoker.handle_error(name, e)
+                await self._queue.put(_StepResult(owner, name, res, payload))
             except Exception as final_error:
                 await self._report_error(name, owner, final_error)
 
@@ -408,7 +481,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             async for ev in sub_pipe.run(sub_state):
                 ev.stage = f"{owner}:{ev.stage}"
                 await self._queue.put(ev)
-            await self._queue.put(_InternalTaskResult(owner, name, None))
+            await self._queue.put(_StepResult(owner, name, None))
         except Exception as e:
             await self._report_error(name, owner, e)
 
@@ -426,19 +499,19 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                 yield item
                 if item.type == EventType.SUSPEND:
                     self._stopping = True
-            elif isinstance(item, _InternalTaskResult):
+            elif isinstance(item, _StepResult):
                 self._total_active_tasks -= 1
                 self._logical_active[item.owner] -= 1
 
-                async for event in self._handle_task_result(item):
+                async for event in self._process_step_result(item):
                     yield event
 
                 if self._logical_active[item.owner] == 0:
                     yield Event(EventType.STEP_END, item.owner, self._state)
                     self._handle_completion(item.owner)
 
-    async def _handle_task_result(
-        self, item: _InternalTaskResult
+    async def _process_step_result(
+        self, item: _StepResult
     ) -> AsyncGenerator[Event, None]:
         res = item.result
 
@@ -490,7 +563,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
     async def _barrier_timeout_watcher(self, name: str, timeout: float) -> None:
         try:
             await asyncio.sleep(timeout)
-            if self._completed_parents[name] < self._parents_map[name]:
+            if not self._graph.is_barrier_satisfied(name):
                 await self._report_error(
                     name,
                     name,
@@ -504,22 +577,21 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             self._skipped_owners.remove(owner)
             return
 
-        for succ in self._topology.get(owner, []):
-            is_first = len(self._completed_parents[succ]) == 0
-            self._completed_parents[succ].add(owner)
-
-            parents_needed = self._parents_map[succ]
-            if self._completed_parents[succ] >= parents_needed:
-                if succ in self._barrier_tasks:
-                    self._barrier_tasks[succ].cancel()
-                    del self._barrier_tasks[succ]
+        for succ in self._graph.get_successors(owner):
+            is_ready, cancel_timeout, schedule_timeout = self._graph.mark_completed(
+                owner, succ
+            )
+            
+            if cancel_timeout and succ in self._barrier_tasks:
+                self._barrier_tasks[succ].cancel()
+                del self._barrier_tasks[succ]
+            
+            if is_ready:
                 self._schedule(succ)
-            elif is_first and len(parents_needed) > 1:
-                timeout = self._step_metadata.get(succ, {}).get("barrier_timeout")
-                if timeout and self._tg:
-                    self._barrier_tasks[succ] = self._tg.create_task(
-                        self._barrier_timeout_watcher(succ, timeout)
-                    )
+            elif schedule_timeout and self._tg:
+                self._barrier_tasks[succ] = self._tg.create_task(
+                    self._barrier_timeout_watcher(succ, schedule_timeout)
+                )
 
     async def _execution_stream(
         self,
@@ -532,12 +604,12 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                 yield error_event
                 return
 
-            roots = self._determine_roots(start)
+            roots = self._graph.get_roots(start)
             if not roots and not self._steps:
                 yield Event(EventType.ERROR, "system", "No steps registered")
                 return
 
-            self._build_dependency_graph()
+            self._graph.build()
             yield Event(EventType.START, "system", self._state)
 
             async with asyncio.TaskGroup() as tg:
@@ -562,6 +634,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         """Execute the pipeline and apply event hooks to the stream."""
         self._state = state
         self._context = context
+        self._invoker.set_context(state, context)
 
         async for event in self._execution_stream(start):
             yield self._apply_event_hooks(event)
