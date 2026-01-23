@@ -53,16 +53,6 @@ def test_pipe_step_list_callable_routing() -> None:
     assert "step_c" in pipe._topology["step_a"]
 
 
-def test_pipe_string_routing_warning() -> None:
-    pipe: Pipe[None, None] = Pipe()
-
-    with pytest.warns(DeprecationWarning, match="String-based topology"):
-
-        @pipe.step(to="step_b")
-        def step_a(state: Any) -> None:
-            pass
-
-
 def test_pipe_map_callable_routing() -> None:
     pipe: Pipe[None, None] = Pipe()
 

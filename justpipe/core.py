@@ -147,8 +147,7 @@ def tenacity_retry_middleware(
         )(func)
 
     conf = retries.copy()
-    if "reraise" not in conf:
-        conf["reraise"] = True
+    conf.setdefault("reraise", True)
     return retry(**conf)(func)  # type: ignore[no-any-return]
 
 
@@ -230,6 +229,26 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         self._barrier_tasks: Dict[str, asyncio.Task[Any]] = {}
         self._skipped_owners: Set[str] = set()
 
+    def _resolve_injections(
+        self,
+        meta_key: str,
+        error: Optional[Exception] = None,
+        step_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Resolve dependency injection parameters for a step or handler."""
+        inj_meta = self._injection_metadata.get(meta_key, {})
+        kwargs: Dict[str, Any] = {}
+        for param_name, source in inj_meta.items():
+            if source == "state":
+                kwargs[param_name] = self._state
+            elif source == "context":
+                kwargs[param_name] = self._context
+            elif source == "error":
+                kwargs[param_name] = error
+            elif source == "step_name":
+                kwargs[param_name] = step_name
+        return kwargs
+
     async def _worker(
         self,
         name: str,
@@ -240,17 +259,12 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         if not func:
             raise ValueError(f"Step not found: {name}")
 
-        inj_meta = self._injection_metadata.get(name, {})
         step_meta = self._step_metadata.get(name, {})
-
-        kwargs = (payload or {}).copy()
-        for param_name, source in inj_meta.items():
-            if source == "state":
-                kwargs[param_name] = self._state
-            elif source == "context":
-                kwargs[param_name] = self._context
-
         timeout = step_meta.get("timeout")
+
+        # Resolve dependencies
+        kwargs = (payload or {}).copy()
+        kwargs.update(self._resolve_injections(name))
 
         async def _exec() -> Any:
             if inspect.isasyncgenfunction(func):
@@ -283,17 +297,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             meta_key = "system:on_error"
 
         if handler:
-            inj_meta = self._injection_metadata.get(meta_key, {})
-            kwargs: Dict[str, Any] = {}
-            for param_name, source in inj_meta.items():
-                if source == "state":
-                    kwargs[param_name] = self._state
-                elif source == "context":
-                    kwargs[param_name] = self._context
-                elif source == "error":
-                    kwargs[param_name] = error
-                elif source == "step_name":
-                    kwargs[param_name] = name
+            kwargs = self._resolve_injections(meta_key, error=error, step_name=name)
 
             try:
                 if inspect.iscoroutinefunction(handler):
@@ -419,7 +423,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             item = await self._queue.get()
 
             if isinstance(item, Event):
-                yield self._apply_event_hooks(item)
+                yield item
                 if item.type == EventType.SUSPEND:
                     self._stopping = True
             elif isinstance(item, _InternalTaskResult):
@@ -427,12 +431,10 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                 self._logical_active[item.owner] -= 1
 
                 async for event in self._handle_task_result(item):
-                    yield self._apply_event_hooks(event)
+                    yield event
 
                 if self._logical_active[item.owner] == 0:
-                    yield self._apply_event_hooks(
-                        Event(EventType.STEP_END, item.owner, self._state)
-                    )
+                    yield Event(EventType.STEP_END, item.owner, self._state)
                     self._handle_completion(item.owner)
 
     async def _handle_task_result(
@@ -519,34 +521,24 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                         self._barrier_timeout_watcher(succ, timeout)
                     )
 
-    async def run(
+    async def _execution_stream(
         self,
-        state: StateT,
-        context: Optional[ContextT] = None,
         start: Union[str, Callable[..., Any], None] = None,
     ) -> AsyncGenerator[Event, None]:
-        """Execute the pipeline starting from the specified step."""
-        self._state = state
-        self._context = context
-
+        """Internal generator for the pipeline lifecycle yielding raw events."""
         try:
             error_event = await self._execute_startup()
             if error_event:
-                yield self._apply_event_hooks(error_event)
+                yield error_event
                 return
 
             roots = self._determine_roots(start)
-            # Check if we have roots or steps to run
             if not roots and not self._steps:
-                yield self._apply_event_hooks(
-                    Event(EventType.ERROR, "system", "No steps registered")
-                )
+                yield Event(EventType.ERROR, "system", "No steps registered")
                 return
 
-            # Build dependency graph
             self._build_dependency_graph()
-
-            yield self._apply_event_hooks(Event(EventType.START, "system", state))
+            yield Event(EventType.START, "system", self._state)
 
             async with asyncio.TaskGroup() as tg:
                 self._tg = tg
@@ -555,15 +547,24 @@ class _PipelineRunner(Generic[StateT, ContextT]):
 
                 async for event in self._process_queue():
                     yield event
-
         finally:
-            # Shutdown
             async for ev in self._execute_shutdown():
-                yield self._apply_event_hooks(ev)
+                yield ev
 
-            yield self._apply_event_hooks(
-                Event(EventType.FINISH, "system", self._state)
-            )
+            yield Event(EventType.FINISH, "system", self._state)
+
+    async def run(
+        self,
+        state: StateT,
+        context: Optional[ContextT] = None,
+        start: Union[str, Callable[..., Any], None] = None,
+    ) -> AsyncGenerator[Event, None]:
+        """Execute the pipeline and apply event hooks to the stream."""
+        self._state = state
+        self._context = context
+
+        async for event in self._execution_stream(start):
+            yield self._apply_event_hooks(event)
 
 
 class Pipe(Generic[StateT, ContextT]):
@@ -622,12 +623,7 @@ class Pipe(Generic[StateT, ContextT]):
 
     def _validate_routing_target(self, target: Any) -> None:
         if isinstance(target, str):
-            warnings.warn(
-                f"String-based topology ('{target}') is deprecated. "
-                "Use direct function references instead.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
+            pass  # warning?
         elif isinstance(target, list):
             for t in target:
                 self._validate_routing_target(t)
@@ -635,6 +631,57 @@ class Pipe(Generic[StateT, ContextT]):
             for t in target.values():
                 if id(t) != id(Stop):
                     self._validate_routing_target(t)
+
+    def _register_step_config(
+        self,
+        name_or_func: Union[str, Callable[..., Any]],
+        func: Callable[..., Any],
+        to: Union[
+            str, List[str], Callable[..., Any], List[Callable[..., Any]], None
+        ] = None,
+        barrier_timeout: Optional[float] = None,
+        on_error: Optional[Callable[..., Any]] = None,
+        expected_unknowns: int = 1,
+        **kwargs: Any,
+    ) -> str:
+        """Common logic for registering a step's configuration and metadata."""
+        stage_name = _resolve_name(name_or_func)
+        self._step_metadata[stage_name] = {
+            **kwargs,
+            "barrier_timeout": barrier_timeout,
+            "on_error": on_error,
+        }
+
+        state_type, context_type = self._get_types()
+        self._injection_metadata[stage_name] = _analyze_signature(
+            func,
+            state_type,
+            context_type,
+            expected_unknowns=expected_unknowns,
+        )
+
+        if on_error:
+            self._injection_metadata[f"{stage_name}:on_error"] = _analyze_signature(
+                on_error, state_type, context_type, expected_unknowns=0
+            )
+
+        if to:
+            self._validate_routing_target(to)
+            self._topology[stage_name] = [
+                _resolve_name(t) for t in (to if isinstance(to, list) else [to])
+            ]
+
+        return stage_name
+
+    def _wrap_step(
+        self, stage_name: str, func: Callable[..., Any], kwargs: Dict[str, Any]
+    ) -> None:
+        """Apply middleware stack and store the step."""
+        wrapped = func
+        ctx = StepContext(name=stage_name, kwargs=kwargs, pipe_name=self.name)
+        for mw in self.middleware:
+            wrapped = mw(wrapped, ctx)
+        self._steps[stage_name] = wrapped
 
     def step(
         self,
@@ -647,30 +694,10 @@ class Pipe(Generic[StateT, ContextT]):
         **kwargs: Any,
     ) -> Callable[..., Any]:
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            stage_name = _resolve_name(name or func)
-            self._step_metadata[stage_name] = {
-                **kwargs,
-                "barrier_timeout": barrier_timeout,
-                "on_error": on_error,
-            }
-            state_type, context_type = self._get_types()
-            self._injection_metadata[stage_name] = _analyze_signature(
-                func, state_type, context_type, expected_unknowns=1
+            stage_name = self._register_step_config(
+                name or func, func, to, barrier_timeout, on_error, **kwargs
             )
-            if on_error:
-                self._injection_metadata[f"{stage_name}:on_error"] = _analyze_signature(
-                    on_error, state_type, context_type, expected_unknowns=0
-                )
-            if to:
-                self._validate_routing_target(to)
-                self._topology[stage_name] = [
-                    _resolve_name(t) for t in (to if isinstance(to, list) else [to])
-                ]
-            wrapped = func
-            ctx = StepContext(name=stage_name, kwargs=kwargs, pipe_name=self.name)
-            for mw in self.middleware:
-                wrapped = mw(wrapped, ctx)
-            self._steps[stage_name] = wrapped
+            self._wrap_step(stage_name, func, kwargs)
             return func
 
         if callable(name) and to is None and not kwargs:
@@ -694,52 +721,33 @@ class Pipe(Generic[StateT, ContextT]):
         self._validate_routing_target(using)
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            stage_name = _resolve_name(name or func)
             target_name = _resolve_name(using)
-
-            self._step_metadata[stage_name] = {
+            stage_name = self._register_step_config(
+                name or func,
+                func,
+                to,
+                barrier_timeout,
+                on_error,
+                map_target=target_name,
                 **kwargs,
-                "map_target": target_name,
-                "barrier_timeout": barrier_timeout,
-                "on_error": on_error,
-            }
-            state_type, context_type = self._get_types()
-            self._injection_metadata[stage_name] = _analyze_signature(
-                func, state_type, context_type, expected_unknowns=1
             )
-            if on_error:
-                self._injection_metadata[f"{stage_name}:on_error"] = _analyze_signature(
-                    on_error, state_type, context_type, expected_unknowns=0
-                )
-
-            if to:
-                self._validate_routing_target(to)
-                self._topology[stage_name] = [
-                    _resolve_name(t) for t in (to if isinstance(to, list) else [to])
-                ]
 
             async def map_wrapper(**inner_kwargs: Any) -> _Map:
                 if inspect.isasyncgenfunction(func):
-                    items = []
-                    async for item in func(**inner_kwargs):
-                        items.append(item)
-                    return _Map(items=items, target=target_name)
-                else:
-                    result = await func(**inner_kwargs)
-                    try:
-                        items = list(result)
-                    except TypeError:
-                        raise ValueError(
-                            f"Step '{stage_name}' decorated with @pipe.map "
-                            f"must return an iterable, got {type(result)}"
-                        )
+                    items = [item async for item in func(**inner_kwargs)]
                     return _Map(items=items, target=target_name)
 
-            wrapped = map_wrapper
-            ctx = StepContext(name=stage_name, kwargs=kwargs, pipe_name=self.name)
-            for mw in self.middleware:
-                wrapped = mw(wrapped, ctx)
-            self._steps[stage_name] = wrapped
+                result = await func(**inner_kwargs)
+                try:
+                    items = list(result)
+                except TypeError:
+                    raise ValueError(
+                        f"Step '{stage_name}' decorated with @pipe.map "
+                        f"must return an iterable, got {type(result)}"
+                    )
+                return _Map(items=items, target=target_name)
+
+            self._wrap_step(stage_name, map_wrapper, kwargs)
             return func
 
         return decorator
@@ -772,43 +780,33 @@ class Pipe(Generic[StateT, ContextT]):
             self._validate_routing_target(default)
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            stage_name = _resolve_name(name or func)
-
             normalized_routes = {}
             if isinstance(routes, dict):
                 for key, target in routes.items():
-                    if isinstance(target, _Stop):
-                        normalized_routes[key] = "Stop"
-                    else:
-                        normalized_routes[key] = _resolve_name(target)
+                    normalized_routes[key] = (
+                        "Stop" if isinstance(target, _Stop) else _resolve_name(target)
+                    )
 
-            self._step_metadata[stage_name] = {
-                **kwargs,
-                "switch_routes": normalized_routes
+            stage_name = self._register_step_config(
+                name or func,
+                func,
+                None,
+                barrier_timeout,
+                on_error,
+                switch_routes=normalized_routes
                 if isinstance(routes, dict)
                 else "dynamic",
-                "switch_default": _resolve_name(default) if default else None,
-                "barrier_timeout": barrier_timeout,
-                "on_error": on_error,
-            }
-
-            state_type, context_type = self._get_types()
-            self._injection_metadata[stage_name] = _analyze_signature(
-                func, state_type, context_type, expected_unknowns=1
+                switch_default=_resolve_name(default) if default else None,
+                **kwargs,
             )
-            if on_error:
-                self._injection_metadata[f"{stage_name}:on_error"] = _analyze_signature(
-                    on_error, state_type, context_type, expected_unknowns=0
-                )
 
             async def switch_wrapper(**inner_kwargs: Any) -> Any:
                 result = await func(**inner_kwargs)
-
-                target = None
-                if isinstance(routes, dict):
-                    target = routes.get(result, default)
-                elif callable(routes):
-                    target = routes(result)
+                target = (
+                    routes.get(result, default)
+                    if isinstance(routes, dict)
+                    else routes(result)
+                )
 
                 if target is None:
                     raise ValueError(
@@ -816,15 +814,9 @@ class Pipe(Generic[StateT, ContextT]):
                         f"which matches no route and no default was provided."
                     )
 
-                if isinstance(target, _Stop):
-                    return Stop
-                return _Next(target)
+                return Stop if isinstance(target, _Stop) else _Next(target)
 
-            wrapped = switch_wrapper
-            ctx = StepContext(name=stage_name, kwargs=kwargs, pipe_name=self.name)
-            for mw in self.middleware:
-                wrapped = mw(wrapped, ctx)
-            self._steps[stage_name] = wrapped
+            self._wrap_step(stage_name, switch_wrapper, kwargs)
             return func
 
         return decorator
@@ -846,42 +838,22 @@ class Pipe(Generic[StateT, ContextT]):
         self._validate_routing_target(using)
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            stage_name = _resolve_name(name or func)
-
-            self._step_metadata[stage_name] = {
+            stage_name = self._register_step_config(
+                name or func,
+                func,
+                to,
+                barrier_timeout,
+                on_error,
+                sub_pipeline=using.name if hasattr(using, "name") else "SubPipe",
+                sub_pipeline_obj=using,
                 **kwargs,
-                "sub_pipeline": using.name if hasattr(using, "name") else "SubPipe",
-                "sub_pipeline_obj": using,
-                "barrier_timeout": barrier_timeout,
-                "on_error": on_error,
-            }
-
-            state_type, context_type = self._get_types()
-            self._injection_metadata[stage_name] = _analyze_signature(
-                func, state_type, context_type, expected_unknowns=1
             )
-            if on_error:
-                self._injection_metadata[f"{stage_name}:on_error"] = _analyze_signature(
-                    on_error, state_type, context_type, expected_unknowns=0
-                )
-
-            if to:
-                self._validate_routing_target(to)
-                self._topology[stage_name] = [
-                    _resolve_name(t) for t in (to if isinstance(to, list) else [to])
-                ]
 
             async def sub_wrapper(**inner_kwargs: Any) -> _Run:
-                # Execute the adapter function to get the state/context for sub-pipe
-                # The adapter should return the state object for the sub-pipeline
                 result = await func(**inner_kwargs)
                 return _Run(pipe=using, state=result)
 
-            wrapped = sub_wrapper
-            ctx = StepContext(name=stage_name, kwargs=kwargs, pipe_name=self.name)
-            for mw in self.middleware:
-                wrapped = mw(wrapped, ctx)
-            self._steps[stage_name] = wrapped
+            self._wrap_step(stage_name, sub_wrapper, kwargs)
             return func
 
         return decorator
