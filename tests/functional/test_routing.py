@@ -65,12 +65,9 @@ async def test_switch_callable_routes() -> None:
     async def switch() -> bool:
         return True
 
-    async def run() -> None:
-        async for _ in pipe.run(None):
-            pass
-
     # We just ensure it runs without error and routes correctly (implied by no error)
-    await run()
+    async for _ in pipe.run(None):
+        pass
 
 
 @pytest.mark.asyncio
@@ -81,14 +78,11 @@ async def test_switch_no_match_no_default() -> None:
     async def switch() -> str:
         return "z"  # No match
 
-    async def run() -> List[Any]:
-        events = []
-        async for ev in pipe.run(None):
-            if ev.type == EventType.ERROR:
-                events.append(ev)
-        return events
+    events = []
+    async for ev in pipe.run(None):
+        if ev.type == EventType.ERROR:
+            events.append(ev)
 
-    events = await run()
     assert len(events) > 0
     assert "matches no route" in str(events[0].data)
 
@@ -101,12 +95,9 @@ async def test_switch_returns_stop() -> None:
     async def switch() -> str:
         return "stop"
 
-    async def run() -> None:
-        events = []
-        async for ev in pipe.run(None):
-            events.append(ev)
-
-    await run()
+    events = []
+    async for ev in pipe.run(None):
+        events.append(ev)
 
 
 @pytest.mark.asyncio

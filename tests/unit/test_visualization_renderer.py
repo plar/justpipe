@@ -1,5 +1,6 @@
 """Unit tests for MermaidRenderer and MermaidTheme."""
 
+from typing import Any, Dict, List, Optional
 from justpipe.visualization import (
     MermaidRenderer,
     MermaidTheme,
@@ -9,6 +10,20 @@ from justpipe.visualization import (
     VisualEdge,
     VisualNode,
 )
+
+
+def create_ast(
+    nodes: Optional[Dict[str, VisualNode]] = None,
+    edges: Optional[List[VisualEdge]] = None,
+    parallel_groups: Optional[List[Any]] = None,
+) -> VisualAST:
+    return VisualAST(
+        nodes=nodes or {},
+        edges=edges or [],
+        parallel_groups=parallel_groups or [],
+        startup_hooks=[],
+        shutdown_hooks=[],
+    )
 
 
 def test_mermaid_renderer_empty() -> None:
@@ -23,9 +38,7 @@ def test_mermaid_renderer_empty() -> None:
 def test_mermaid_renderer_simple() -> None:
     """Test rendering simple AST."""
     node = VisualNode(id="n0", name="step", kind=NodeKind.STEP)
-    ast = VisualAST(
-        nodes={"step": node}, edges=[], parallel_groups=[], startup_hooks=[], shutdown_hooks=[]
-    )
+    ast = create_ast(nodes={"step": node})
     renderer = MermaidRenderer(ast)
     output = renderer.render()
     assert 'n0["Step"]' in output
@@ -35,13 +48,7 @@ def test_mermaid_renderer_simple() -> None:
 def test_mermaid_renderer_streaming_shape() -> None:
     """Test streaming node shape."""
     node = VisualNode(id="n0", name="stream", kind=NodeKind.STREAMING)
-    ast = VisualAST(
-        nodes={"stream": node},
-        edges=[],
-        parallel_groups=[],
-        startup_hooks=[],
-        shutdown_hooks=[],
-    )
+    ast = create_ast(nodes={"stream": node})
     renderer = MermaidRenderer(ast)
     output = renderer.render()
     assert 'n0(["Stream ⚡"])' in output
@@ -51,13 +58,7 @@ def test_mermaid_renderer_streaming_shape() -> None:
 def test_mermaid_renderer_map_shape() -> None:
     """Test map node shape."""
     node = VisualNode(id="n0", name="mapper", kind=NodeKind.MAP)
-    ast = VisualAST(
-        nodes={"mapper": node},
-        edges=[],
-        parallel_groups=[],
-        startup_hooks=[],
-        shutdown_hooks=[],
-    )
+    ast = create_ast(nodes={"mapper": node})
     renderer = MermaidRenderer(ast)
     output = renderer.render()
     assert 'n0[["Mapper"]]' in output
@@ -67,13 +68,7 @@ def test_mermaid_renderer_map_shape() -> None:
 def test_mermaid_renderer_switch_shape() -> None:
     """Test switch node shape."""
     node = VisualNode(id="n0", name="router", kind=NodeKind.SWITCH)
-    ast = VisualAST(
-        nodes={"router": node},
-        edges=[],
-        parallel_groups=[],
-        startup_hooks=[],
-        shutdown_hooks=[],
-    )
+    ast = create_ast(nodes={"router": node})
     renderer = MermaidRenderer(ast)
     output = renderer.render()
     assert 'n0{"Router"}' in output
@@ -85,13 +80,7 @@ def test_mermaid_renderer_map_edge() -> None:
     n1 = VisualNode(id="n1", name="a", kind=NodeKind.MAP)
     n2 = VisualNode(id="n2", name="b", kind=NodeKind.STEP, is_map_target=True)
     edge = VisualEdge(source="a", target="b", is_map_edge=True)
-    ast = VisualAST(
-        nodes={"a": n1, "b": n2},
-        edges=[edge],
-        parallel_groups=[],
-        startup_hooks=[],
-        shutdown_hooks=[],
-    )
+    ast = create_ast(nodes={"a": n1, "b": n2}, edges=[edge])
     renderer = MermaidRenderer(ast)
     output = renderer.render()
     assert "n1 -. map .-> n2" in output
@@ -103,13 +92,7 @@ def test_mermaid_renderer_labeled_edge() -> None:
     n1 = VisualNode(id="n1", name="a", kind=NodeKind.SWITCH)
     n2 = VisualNode(id="n2", name="b", kind=NodeKind.STEP)
     edge = VisualEdge(source="a", target="b", label="yes")
-    ast = VisualAST(
-        nodes={"a": n1, "b": n2},
-        edges=[edge],
-        parallel_groups=[],
-        startup_hooks=[],
-        shutdown_hooks=[],
-    )
+    ast = create_ast(nodes={"a": n1, "b": n2}, edges=[edge])
     renderer = MermaidRenderer(ast)
     output = renderer.render()
     assert 'n1 -- "yes" --> n2' in output

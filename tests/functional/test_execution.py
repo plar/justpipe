@@ -13,7 +13,7 @@ async def test_linear_execution_flow(state: Any) -> None:
 
     @pipe.step("start", to="step2")
     async def start() -> None:
-        return None
+        pass
 
     @pipe.step("step2")
     async def step2() -> None:
@@ -103,7 +103,7 @@ def test_advanced_retry_config() -> None:
 async def test_empty_pipeline() -> None:
     """Empty pipeline should yield ERROR and FINISH, not crash."""
     pipe: Pipe[Any, Any] = Pipe()
-    events = [e async for e in pipe.run({})]
+    events: List[Any] = [e async for e in pipe.run({})]
 
     assert len(events) >= 2
     error_events = [e for e in events if e.type == EventType.ERROR]
