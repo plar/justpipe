@@ -1,23 +1,7 @@
-import pytest
+"""Unit tests for function signature analysis (injection logic)."""
+
 from typing import Any
 from justpipe.core import _analyze_signature
-from justpipe.types import _resolve_name
-
-
-def test_resolve_name_string() -> None:
-    assert _resolve_name("foo") == "foo"
-
-
-def test_resolve_name_callable() -> None:
-    def bar() -> None:
-        pass
-
-    assert _resolve_name(bar) == "bar"
-
-
-def test_resolve_name_invalid() -> None:
-    with pytest.raises(ValueError):
-        _resolve_name(123)  # type: ignore
 
 
 class MockState:
@@ -44,7 +28,6 @@ def test_analyze_by_name_fallback() -> None:
     assert mapping == {"state": "state", "context": "context"}
 
 
-# Simplified robust tests
 def test_analyze_short_names() -> None:
     async def step(s: Any, c: Any) -> None:
         pass

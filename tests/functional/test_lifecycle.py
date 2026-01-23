@@ -1,7 +1,30 @@
 import pytest
-from typing import Any
+from typing import Any, List
 from unittest.mock import Mock
 from justpipe import Pipe, EventType
+
+
+@pytest.mark.asyncio
+async def test_startup_handlers(state: Any, context: Any) -> None:
+    pipe: Pipe[Any, Any] = Pipe()
+    log: List[str] = []
+
+    async def _startup(ctx: Any) -> None:
+        log.append("startup")
+
+    async def _shutdown(ctx: Any) -> None:
+        log.append("shutdown")
+
+    pipe.on_startup(_startup)
+    pipe.on_shutdown(_shutdown)
+
+    @pipe.step("start")
+    async def start() -> None:
+        pass
+
+    async for _ in pipe.run(state, context):
+        pass
+    assert log == ["startup", "shutdown"]
 
 
 @pytest.mark.asyncio
