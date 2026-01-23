@@ -58,7 +58,9 @@ async def test_global_handler() -> None:
     pipe: Pipe[Dict[str, Any], None] = Pipe()
 
     @pipe.on_error
-    async def global_handler(error: Exception, step_name: str, state: Dict[str, Any]) -> Any:
+    async def global_handler(
+        error: Exception, step_name: str, state: Dict[str, Any]
+    ) -> Any:
         state["global_caught"] = step_name
         return Skip()
 

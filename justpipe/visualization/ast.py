@@ -112,7 +112,9 @@ class VisualAST:
 
         # Identify nodes that are targets of a map operation
         map_targets = {
-            meta["map_target"] for meta in step_metadata.values() if "map_target" in meta
+            meta["map_target"]
+            for meta in step_metadata.values()
+            if "map_target" in meta
         }
 
         # Calculate all targets (nodes that are destinations)
@@ -212,7 +214,9 @@ class VisualAST:
 
                 default = meta.get("switch_default")
                 if default:
-                    edges.append(VisualEdge(source=src, target=default, label="default"))
+                    edges.append(
+                        VisualEdge(source=src, target=default, label="default")
+                    )
 
         # Build parallel groups
         parallel_groups: List[ParallelGroup] = []

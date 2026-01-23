@@ -296,7 +296,11 @@ def test_mermaid_renderer_streaming_shape() -> None:
     """Test that streaming nodes get stadium shape."""
     nodes = {
         "stream": VisualNode(
-            id="n0", name="stream", kind=NodeKind.STREAMING, is_entry=True, is_terminal=True
+            id="n0",
+            name="stream",
+            kind=NodeKind.STREAMING,
+            is_entry=True,
+            is_terminal=True,
         )
     }
     ast = VisualAST(nodes=nodes, edges=[], parallel_groups=[])
@@ -326,7 +330,11 @@ def test_mermaid_renderer_switch_shape() -> None:
     """Test that switch nodes get diamond shape."""
     nodes = {
         "router": VisualNode(
-            id="n0", name="router", kind=NodeKind.SWITCH, is_entry=True, is_terminal=True
+            id="n0",
+            name="router",
+            kind=NodeKind.SWITCH,
+            is_entry=True,
+            is_terminal=True,
         )
     }
     ast = VisualAST(nodes=nodes, edges=[], parallel_groups=[])
@@ -365,7 +373,9 @@ def test_mermaid_renderer_map_edge() -> None:
     """Test that map edges render as dotted lines."""
     nodes = {
         "mapper": VisualNode(id="n0", name="mapper", kind=NodeKind.MAP, is_entry=True),
-        "worker": VisualNode(id="n1", name="worker", kind=NodeKind.STEP, is_terminal=True),
+        "worker": VisualNode(
+            id="n1", name="worker", kind=NodeKind.STEP, is_terminal=True
+        ),
     }
     edges = [VisualEdge(source="mapper", target="worker", is_map_edge=True)]
     ast = VisualAST(nodes=nodes, edges=edges, parallel_groups=[])
@@ -379,8 +389,12 @@ def test_mermaid_renderer_map_edge() -> None:
 def test_mermaid_renderer_labeled_edge() -> None:
     """Test that labeled edges include labels."""
     nodes = {
-        "router": VisualNode(id="n0", name="router", kind=NodeKind.SWITCH, is_entry=True),
-        "handler": VisualNode(id="n1", name="handler", kind=NodeKind.STEP, is_terminal=True),
+        "router": VisualNode(
+            id="n0", name="router", kind=NodeKind.SWITCH, is_entry=True
+        ),
+        "handler": VisualNode(
+            id="n1", name="handler", kind=NodeKind.STEP, is_terminal=True
+        ),
     }
     edges = [VisualEdge(source="router", target="handler", label="yes")]
     ast = VisualAST(nodes=nodes, edges=edges, parallel_groups=[])
@@ -415,8 +429,12 @@ def test_mermaid_renderer_parallel_subgraph() -> None:
 def test_mermaid_renderer_utilities_subgraph() -> None:
     """Test isolated nodes create utilities subgraph."""
     nodes = {
-        "main": VisualNode(id="n0", name="main", kind=NodeKind.STEP, is_entry=True, is_terminal=True),
-        "orphan": VisualNode(id="n1", name="orphan", kind=NodeKind.STEP, is_isolated=True),
+        "main": VisualNode(
+            id="n0", name="main", kind=NodeKind.STEP, is_entry=True, is_terminal=True
+        ),
+        "orphan": VisualNode(
+            id="n1", name="orphan", kind=NodeKind.STEP, is_isolated=True
+        ),
     }
     ast = VisualAST(nodes=nodes, edges=[], parallel_groups=[])
 
