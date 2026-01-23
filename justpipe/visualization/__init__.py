@@ -9,6 +9,7 @@ from justpipe.visualization.ast import (
     VisualEdge,
     VisualNode,
 )
+from justpipe.visualization.builder import PipelineASTBuilder
 from justpipe.visualization.mermaid import MermaidRenderer, MermaidTheme
 
 
@@ -38,7 +39,7 @@ def generate_mermaid_graph(
         A Mermaid.js diagram string.
     """
     effective_theme = theme or MermaidTheme(direction=direction)
-    ast = VisualAST.from_pipe(
+    ast = PipelineASTBuilder.build(
         steps,
         topology,
         step_metadata or {},
@@ -56,6 +57,8 @@ __all__ = [
     "VisualEdge",
     "ParallelGroup",
     "NodeKind",
+    # Builder
+    "PipelineASTBuilder",
     # Mermaid rendering
     "MermaidRenderer",
     "MermaidTheme",
