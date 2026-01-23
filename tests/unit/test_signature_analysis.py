@@ -1,7 +1,7 @@
 """Unit tests for function signature analysis (injection logic)."""
 
 from typing import Any
-from justpipe.core import _analyze_signature
+from justpipe.utils import _analyze_signature
 
 
 class MockState:

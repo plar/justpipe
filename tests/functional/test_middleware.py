@@ -130,7 +130,7 @@ async def test_retry_middleware_integration() -> None:
 
 def test_tenacity_missing_warning() -> None:
     """Verify warning when tenacity is requested but missing."""
-    with patch("justpipe.core.HAS_TENACITY", False):
+    with patch("justpipe.middleware.HAS_TENACITY", False):
         pipe: Pipe[Any, Any] = Pipe()
 
         with pytest.warns(UserWarning, match="tenacity"):

@@ -6,7 +6,7 @@ def test_pipe_init() -> None:
     pipe: Pipe[Any, Any] = Pipe("MyPipe")
     assert pipe.name == "MyPipe"
 
-    from justpipe.core import tenacity_retry_middleware
+    from justpipe.middleware import tenacity_retry_middleware
 
     assert pipe.middleware == [tenacity_retry_middleware]
 
