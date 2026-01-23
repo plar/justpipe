@@ -38,14 +38,14 @@ class Pipe(Generic[StateT, ContextT]):
         self.name = name
         self.queue_size = queue_size
         self._validate_on_run = validate_on_run
-        
+
         # Determine types for registry
         state_type, context_type = self._get_types()
         self.registry = _PipelineRegistry(
             pipe_name=name,
             middleware=middleware,
             state_type=state_type,
-            context_type=context_type
+            context_type=context_type,
         )
 
     def _get_types(self) -> tuple[Any, Any]:
@@ -72,7 +72,7 @@ class Pipe(Generic[StateT, ContextT]):
     @property
     def _shutdown(self) -> List[Callable[..., Any]]:
         return self.registry.shutdown_hooks
-        
+
     @property
     def _injection_metadata(self) -> Dict[str, Dict[str, str]]:
         return self.registry.injection_metadata
@@ -149,7 +149,14 @@ class Pipe(Generic[StateT, ContextT]):
         on_error: Optional[Callable[..., Any]] = None,
         **kwargs: Any,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        return self.registry.switch(name, routes, default, barrier_timeout, on_error, **kwargs)
+        return self.registry.switch(
+            name,
+            routes,
+            default,
+            barrier_timeout,
+            on_error,
+            **kwargs,
+        )
 
     def sub(
         self,
@@ -191,7 +198,7 @@ class Pipe(Generic[StateT, ContextT]):
 
         graph = _DependencyGraph(
             self.registry.steps,
-            self.registry.topology
+            self.registry.topology,
         )
         graph.validate()
 
@@ -204,6 +211,7 @@ class Pipe(Generic[StateT, ContextT]):
     ) -> AsyncGenerator[Event, None]:
         if self._validate_on_run:
             self.validate()
+        self.registry.finalize()
         runner: _PipelineRunner[StateT, ContextT] = _PipelineRunner(
             self.registry.steps,
             self.registry.topology,

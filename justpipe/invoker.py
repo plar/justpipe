@@ -37,17 +37,17 @@ class _StepInvoker(Generic[StateT, ContextT]):
         self._steps = steps
         self._injection_metadata = injection_metadata
         self._on_error = on_error
-        self._state: Optional[StateT] = None
-        self._context: Optional[ContextT] = None
 
-    def set_context(self, state: StateT, context: Optional[ContextT]) -> None:
-        """Set the execution context for the current run."""
-        self._state = state
-        self._context = context
+    @property
+    def global_error_handler(self) -> Optional[Callable[..., Any]]:
+        """Return the global error handler."""
+        return self._on_error
 
     def _resolve_injections(
         self,
         meta_key: str,
+        state: Optional[StateT],
+        context: Optional[ContextT],
         error: Optional[Exception] = None,
         step_name: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -56,9 +56,9 @@ class _StepInvoker(Generic[StateT, ContextT]):
         kwargs: Dict[str, Any] = {}
         for param_name, source in inj_meta.items():
             if source == "state":
-                kwargs[param_name] = self._state
+                kwargs[param_name] = state
             elif source == "context":
-                kwargs[param_name] = self._context
+                kwargs[param_name] = context
             elif source == "error":
                 kwargs[param_name] = error
             elif source == "step_name":
@@ -69,6 +69,8 @@ class _StepInvoker(Generic[StateT, ContextT]):
         self,
         name: str,
         queue: asyncio.Queue[Union[Event, _StepResult]],
+        state: Optional[StateT],
+        context: Optional[ContextT],
         payload: Optional[Dict[str, Any]] = None,
     ) -> Any:
         """Execute a single step, handling parameter injection and timeouts."""
@@ -80,21 +82,25 @@ class _StepInvoker(Generic[StateT, ContextT]):
 
         # Resolve dependencies
         kwargs = (payload or {}).copy()
-        kwargs.update(self._resolve_injections(name))
+        kwargs.update(self._resolve_injections(name, state, context))
 
         async def _exec() -> Any:
             # We await execute() which calls the middleware-wrapped function.
             # If the underlying function is a generator, execute() returns the generator object.
             # If it's a regular function, it returns the result.
             result = await step.execute(**kwargs)
-            
+
             if inspect.isasyncgen(result):
                 last_val = None
-                async for item in result:
-                    if isinstance(item, (_Next, _Map, _Run, Suspend)):
-                        last_val = item
-                    else:
-                        await queue.put(Event(EventType.TOKEN, name, item))
+                try:
+                    async for item in result:
+                        if isinstance(item, (_Next, _Map, _Run, Suspend)):
+                            last_val = item
+                        else:
+                            await queue.put(Event(EventType.TOKEN, name, item))
+                except asyncio.CancelledError:
+                    await result.aclose()
+                    raise
                 return last_val
             else:
                 return result
@@ -107,20 +113,24 @@ class _StepInvoker(Generic[StateT, ContextT]):
         return await _exec()
 
     async def execute_handler(
-        self, 
-        handler: Callable[..., Any], 
-        error: Exception, 
+        self,
+        handler: Callable[..., Any],
+        error: Exception,
         step_name: str,
-        is_global: bool = False
+        state: Optional[StateT],
+        context: Optional[ContextT],
+        is_global: bool = False,
     ) -> Any:
         """Execute a specific error handler."""
         # For global handlers, we might use a specific metadata key
         meta_key = "system:on_error" if is_global else f"{step_name}:on_error"
-        
+
         # If the handler is the global one but attached locally (edge case),
         # we might need to be careful, but generally the caller decides the context.
-        
-        kwargs = self._resolve_injections(meta_key, error=error, step_name=step_name)
+
+        kwargs = self._resolve_injections(
+            meta_key, state, context, error=error, step_name=step_name
+        )
 
         if inspect.iscoroutinefunction(handler):
             return await handler(**kwargs)

@@ -67,9 +67,9 @@ def test_standard_examples(
     root = Path(__file__).parent.parent.parent
     result = run_example(example_name)
 
-    assert (
-        result.returncode == 0
-    ), f"Example {example_name} failed with stderr: {result.stderr}"
+    assert result.returncode == 0, (
+        f"Example {example_name} failed with stderr: {result.stderr}"
+    )
 
     for expected in expected_output:
         assert expected in result.stdout

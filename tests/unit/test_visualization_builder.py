@@ -24,7 +24,7 @@ def test_ast_from_single_step() -> None:
         pass
 
     steps: Dict[str, _BaseStep] = {
-        "a": _StandardStep(name="a", func=step_a)
+        "a": _StandardStep(name="a", func=step_a),
     }
     topology: Dict[str, List[str]] = {}
 
@@ -49,7 +49,7 @@ def test_ast_from_linear_pipe() -> None:
 
     steps: Dict[str, _BaseStep] = {
         "a": _StandardStep(name="a", func=step_a, to=["b"]),
-        "b": _StandardStep(name="b", func=step_b)
+        "b": _StandardStep(name="b", func=step_b),
     }
     topology = {"a": ["b"]}
 
@@ -81,7 +81,7 @@ def test_ast_streaming_node() -> None:
 
     steps: Dict[str, _BaseStep] = {
         "regular": _StandardStep(name="regular", func=regular, to=["streaming"]),
-        "streaming": _StandardStep(name="streaming", func=streaming)
+        "streaming": _StandardStep(name="streaming", func=streaming),
     }
     topology = {"regular": ["streaming"]}
 
@@ -105,7 +105,7 @@ def test_ast_parallel_group() -> None:
     steps: Dict[str, _BaseStep] = {
         "a": _StandardStep(name="a", func=step_a, to=["b", "c"]),
         "b": _StandardStep(name="b", func=step_b),
-        "c": _StandardStep(name="c", func=step_c)
+        "c": _StandardStep(name="c", func=step_c),
     }
     topology = {"a": ["b", "c"]}
 
@@ -127,7 +127,7 @@ def test_ast_map_metadata() -> None:
 
     steps: Dict[str, _BaseStep] = {
         "mapper": _MapStep(name="mapper", func=mapper, map_target="worker"),
-        "worker": _StandardStep(name="worker", func=worker)
+        "worker": _StandardStep(name="worker", func=worker),
     }
     topology: Dict[str, List[str]] = {}
 
@@ -152,12 +152,12 @@ def test_ast_switch_metadata() -> None:
 
     steps: Dict[str, _BaseStep] = {
         "router": _SwitchStep(
-            name="router", 
+            name="router",
             func=router,
-            routes={"yes": "handler_a", "no": "handler_b"}
+            routes={"yes": "handler_a", "no": "handler_b"},
         ),
         "handler_a": _StandardStep(name="handler_a", func=handler_a),
-        "handler_b": _StandardStep(name="handler_b", func=handler_b)
+        "handler_b": _StandardStep(name="handler_b", func=handler_b),
     }
     topology: Dict[str, List[str]] = {}
 
@@ -182,13 +182,10 @@ def test_ast_switch_with_default() -> None:
 
     steps: Dict[str, _BaseStep] = {
         "router": _SwitchStep(
-            name="router",
-            func=router,
-            routes={"yes": "handler"},
-            default="fallback"
+            name="router", func=router, routes={"yes": "handler"}, default="fallback"
         ),
         "handler": _StandardStep(name="handler", func=handler),
-        "fallback": _StandardStep(name="fallback", func=fallback)
+        "fallback": _StandardStep(name="fallback", func=fallback),
     }
     topology: Dict[str, List[str]] = {}
 
@@ -213,7 +210,7 @@ def test_ast_isolated_node() -> None:
     steps: Dict[str, _BaseStep] = {
         "main": _StandardStep(name="main", func=main, to=["leaf"]),
         "orphan": _StandardStep(name="orphan", func=orphan),
-        "leaf": _StandardStep(name="leaf", func=leaf)
+        "leaf": _StandardStep(name="leaf", func=leaf),
     }
     topology = {"main": ["leaf"]}
 

@@ -8,6 +8,7 @@ from justpipe.invoker import _StepInvoker, _StepResult
 from justpipe.steps import _BaseStep
 from justpipe.types import Event, EventType
 
+
 class _FailureHandler:
     """Manages error escalation and reporting."""
 
@@ -27,17 +28,18 @@ class _FailureHandler:
         owner: str,
         payload: Optional[Dict[str, Any]],
         error: Exception,
-        state: Optional[Any] = None
+        state: Optional[Any] = None,
+        context: Optional[Any] = None,
     ) -> None:
         """Centralized error handling logic with escalation."""
         step = self._steps.get(name)
         local_handler = step.on_error if step else None
-        
+
         # 1. Try Local Handler
         if local_handler:
             try:
                 res = await self._invoker.execute_handler(
-                    local_handler, error, name, is_global=False
+                    local_handler, error, name, state, context, is_global=False
                 )
                 await self._queue.put(_StepResult(owner, name, res, payload))
                 return
@@ -46,11 +48,11 @@ class _FailureHandler:
                 error = new_error
 
         # 2. Try Global Handler
-        global_handler = self._invoker._on_error
+        global_handler = self._invoker.global_error_handler
         if global_handler:
             try:
                 res = await self._invoker.execute_handler(
-                    global_handler, error, name, is_global=True
+                    global_handler, error, name, state, context, is_global=True
                 )
                 await self._queue.put(_StepResult(owner, name, res, payload))
                 return
@@ -67,7 +69,9 @@ class _FailureHandler:
 
     def _log_error(self, name: str, error: Exception, state: Optional[Any]) -> None:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        stack = traceback.format_exc()
+        stack = "".join(
+            traceback.format_exception(type(error), error, error.__traceback__)
+        )
         state_str = str(state)[:1000]
         logging.error(
             f"[{timestamp}] Step '{name}' failed with {type(error).__name__}: {error}\n"

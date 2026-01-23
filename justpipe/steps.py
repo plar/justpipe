@@ -14,6 +14,7 @@ from justpipe.types import (
 if TYPE_CHECKING:
     from justpipe.middleware import Middleware
 
+
 class _BaseStep(ABC):
     """Abstract base class for all pipeline steps."""
 
@@ -36,8 +37,13 @@ class _BaseStep(ABC):
         self.on_error = on_error
         self.pipe_name = pipe_name
         self.extra = extra or {}
-        
+
         self._wrapped_func: Optional[Callable[..., Any]] = None
+
+    @property
+    def _func(self) -> Callable[..., Any]:
+        """Return the wrapped function if middleware was applied, otherwise the original."""
+        return self._wrapped_func if self._wrapped_func is not None else self.original_func
 
     def wrap_middleware(self, middleware: List["Middleware"]) -> None:
         """Apply middleware to the step function."""
@@ -46,7 +52,7 @@ class _BaseStep(ABC):
             name=self.name,
             kwargs=self.extra,
             pipe_name=self.pipe_name,
-            retries=self.retries
+            retries=self.retries,
         )
         for mw in middleware:
             wrapped = mw(wrapped, ctx)
@@ -62,9 +68,8 @@ class _BaseStep(ABC):
 
     async def execute(self, **kwargs: Any) -> Any:
         """Execute the step logic."""
-        func = self._wrapped_func if self._wrapped_func is not None else self.original_func
-        res = func(**kwargs)
-        
+        res = self._func(**kwargs)
+
         if inspect.isawaitable(res):
             return await res
         return res
@@ -111,9 +116,7 @@ class _MapStep(_BaseStep):
         return [self.map_target] + self.to
 
     async def execute(self, **kwargs: Any) -> Any:
-        func = self._wrapped_func if self._wrapped_func is not None else self.original_func
-        
-        res = func(**kwargs)
+        res = self._func(**kwargs)
         if inspect.isawaitable(res):
             res = await res
 
@@ -136,7 +139,7 @@ class _SwitchStep(_BaseStep):
         self,
         name: str,
         func: Callable[..., Any],
-        routes: Union[Dict[Any, str], Callable[[Any], Union[str, _Stop]]],
+        routes: Union[Dict[Any, Union[str, _Stop]], Callable[[Any], Union[str, _Stop]]],
         default: Optional[str] = None,
         **kwargs: Any,
     ):
@@ -150,37 +153,34 @@ class _SwitchStep(_BaseStep):
     def get_targets(self) -> List[str]:
         targets: List[str] = []
         if isinstance(self.routes, dict):
-            targets.extend(t for t in self.routes.values() if t != "Stop")
+            for t in self.routes.values():
+                if not isinstance(t, _Stop):
+                    targets.append(t)
         if self.default:
             targets.append(self.default)
         return targets
 
     async def execute(self, **kwargs: Any) -> Any:
-        func = self._wrapped_func if self._wrapped_func is not None else self.original_func
-        
-        res = func(**kwargs)
-        if inspect.isawaitable(res):
-            result = await res
-        else:
-            result = res
-        
+        res = self._func(**kwargs)
+        result = await res if inspect.isawaitable(res) else res
+
         target: Union[str, _Stop, None] = None
         if isinstance(self.routes, dict):
             target = self.routes.get(result, self.default)
         else:
             target = self.routes(result)
-            
+
         if target is None:
-             # If using callable routes and it returns None, check default
-             if not isinstance(self.routes, dict) and self.default:
-                 target = self.default
-             else:
+            # If using callable routes and it returns None, check default
+            if not isinstance(self.routes, dict) and self.default:
+                target = self.default
+            else:
                 raise ValueError(
                     f"Step '{self.name}' (switch) returned {result}, "
                     f"which matches no route and no default was provided."
                 )
 
-        return Stop if (isinstance(target, _Stop) or target == "Stop") else _Next(target)
+        return Stop if isinstance(target, _Stop) else _Next(target)
 
 
 class _SubPipelineStep(_BaseStep):
@@ -205,12 +205,6 @@ class _SubPipelineStep(_BaseStep):
         return self.to
 
     async def execute(self, **kwargs: Any) -> Any:
-        func = self._wrapped_func if self._wrapped_func is not None else self.original_func
-        
-        res = func(**kwargs)
-        if inspect.isawaitable(res):
-            result = await res
-        else:
-            result = res
-            
+        res = self._func(**kwargs)
+        result = await res if inspect.isawaitable(res) else res
         return _Run(pipe=self.sub_pipeline_obj, state=result)

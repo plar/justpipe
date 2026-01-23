@@ -111,7 +111,7 @@ def test_pipe_switch_stop_routing() -> None:
     step = pipe.registry.steps["decider"]
     assert isinstance(step, _SwitchStep)
     assert isinstance(step.routes, dict)
-    assert step.routes["a"] == "Stop"
+    assert step.routes["a"] is Stop
 
 
 def test_pipe_validation_ok() -> None:

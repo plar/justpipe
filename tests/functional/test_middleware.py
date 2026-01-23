@@ -69,7 +69,8 @@ def test_middleware_kwargs_passing() -> None:
     async def test() -> None:
         pass
 
-    # Registration time check, no need for async execution
+    # Middleware is applied at finalize time
+    pipe.registry.finalize()
     assert captured_ctx["name"] == "test"
     assert captured_ctx["kwargs"] == {"foo": "bar", "limit": 10}
     assert captured_ctx["pipe_name"] == "Pipe"
@@ -133,21 +134,23 @@ def test_tenacity_missing_warning() -> None:
     with patch("justpipe.middleware.HAS_TENACITY", False):
         pipe: Pipe[Any, Any] = Pipe()
 
-        with pytest.warns(UserWarning, match="tenacity"):
+        @pipe.step("retry_step", retries=1)
+        async def retry_step() -> None:
+            pass
 
-            @pipe.step("retry_step", retries=1)
-            async def retry_step() -> None:
-                pass
+        with pytest.warns(UserWarning, match="tenacity"):
+            pipe.registry.finalize()
 
 
 def test_retry_on_async_generator_warning() -> None:
     pipe: Pipe[Any, Any] = Pipe()
 
-    with pytest.warns(UserWarning, match="Streaming step.*cannot retry"):
+    @pipe.step("stream_step", retries=2)
+    async def stream_step() -> Any:
+        yield 1
 
-        @pipe.step("stream_step", retries=2)
-        async def stream_step() -> Any:
-            yield 1
+    with pytest.warns(UserWarning, match="Streaming step.*cannot retry"):
+        pipe.registry.finalize()
 
 
 @pytest.mark.asyncio

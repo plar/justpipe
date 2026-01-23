@@ -81,11 +81,13 @@ async def test_step_timeout_execution() -> None:
 
 def test_async_gen_retry_warning() -> None:
     pipe: Pipe[Any, Any] = Pipe()
-    with pytest.warns(UserWarning, match="cannot retry automatically"):
 
-        @pipe.step("stream", retries=3)
-        async def stream() -> AsyncGenerator[int, None]:
-            yield 1
+    @pipe.step("stream", retries=3)
+    async def stream() -> AsyncGenerator[int, None]:
+        yield 1
+
+    with pytest.warns(UserWarning, match="cannot retry automatically"):
+        pipe.registry.finalize()
 
 
 def test_advanced_retry_config() -> None:

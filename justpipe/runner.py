@@ -10,7 +10,7 @@ from typing import (
     Set,
     TypeVar,
     Union,
-    Generic
+    Generic,
 )
 
 from justpipe.graph import _DependencyGraph
@@ -90,6 +90,15 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             except Exception as e:
                 yield Event(EventType.ERROR, "shutdown", str(e))
 
+    async def _safe_put(self, item: Union[Event, _StepResult]) -> None:
+        """Put item on queue, yielding control if queue is full to prevent deadlock."""
+        while True:
+            try:
+                self._queue.put_nowait(item)
+                return
+            except asyncio.QueueFull:
+                await asyncio.sleep(0)
+
     def _spawn(self, coro: Any, owner: str) -> None:
         if self._stopping or not self._tg:
             coro.close()
@@ -112,10 +121,23 @@ class _PipelineRunner(Generic[StateT, ContextT]):
     ) -> None:
         try:
             await self._queue.put(Event(EventType.STEP_START, name))
-            res = await self._invoker.execute(name, self._queue, payload)
+            res = await self._invoker.execute(
+                name,
+                self._queue,
+                self._state,
+                self._context,
+                payload,
+            )
             await self._queue.put(_StepResult(owner, name, res, payload))
         except Exception as e:
-            await self._failure_handler.handle_failure(name, owner, payload, e, self._state)
+            await self._failure_handler.handle_failure(
+                name,
+                owner,
+                payload,
+                e,
+                self._state,
+                self._context,
+            )
 
     async def _sub_pipe_wrapper(
         self, sub_pipe: Any, sub_state: Any, owner: str
@@ -124,15 +146,22 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         try:
             async for ev in sub_pipe.run(sub_state):
                 ev.stage = f"{owner}:{ev.stage}"
-                await self._queue.put(ev)
-            await self._queue.put(_StepResult(owner, name, None))
+                await self._safe_put(ev)
+            await self._safe_put(_StepResult(owner, name, None))
         except Exception as e:
-            await self._failure_handler.handle_failure(name, owner, None, e, self._state)
+            await self._failure_handler.handle_failure(
+                name, owner, None, e, self._state, self._context
+            )
 
     def _apply_event_hooks(self, event: Event) -> Event:
         """Apply all registered event hooks to transform the event."""
         for hook in self._event_hooks:
-            event = hook(event)
+            result = hook(event)
+            if result is None:
+                raise ValueError(
+                    f"Event hook {hook.__name__} returned None, expected Event"
+                )
+            event = result
         return event
 
     async def _process_queue(self) -> AsyncGenerator[Event, None]:
@@ -162,7 +191,12 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         if isinstance(res, Raise):
             if res.exception:
                 await self._failure_handler.handle_failure(
-                    item.name, item.owner, item.payload, res.exception, self._state
+                    item.name,
+                    item.owner,
+                    item.payload,
+                    res.exception,
+                    self._state,
+                    self._context,
                 )
             return
 
@@ -209,16 +243,25 @@ class _PipelineRunner(Generic[StateT, ContextT]):
     async def _barrier_timeout_watcher(self, name: str, timeout: float) -> None:
         try:
             await asyncio.sleep(timeout)
-            if not self._graph.is_barrier_satisfied(name):
-                await self._failure_handler.handle_failure(
-                    name, 
-                    name, 
-                    None, 
-                    TimeoutError(f"Barrier timeout for step '{name}' after {timeout}s"),
-                    self._state
-                )
+            if (
+                name in self._barrier_tasks
+                and self._barrier_tasks[name] is asyncio.current_task()
+            ):
+                if not self._graph.is_barrier_satisfied(name):
+                    await self._failure_handler.handle_failure(
+                        name,
+                        name,
+                        None,
+                        TimeoutError(
+                            f"Barrier timeout for step '{name}' after {timeout}s"
+                        ),
+                        self._state,
+                        self._context,
+                    )
         except asyncio.CancelledError:
             pass
+        finally:
+            self._total_active_tasks -= 1
 
     def _handle_completion(self, owner: str) -> None:
         if owner in self._skipped_owners:
@@ -237,6 +280,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
 
         for barrier_node, timeout in result.barriers_to_schedule:
             if self._tg:
+                self._total_active_tasks += 1
                 self._barrier_tasks[barrier_node] = self._tg.create_task(
                     self._barrier_timeout_watcher(barrier_node, timeout)
                 )
@@ -282,7 +326,6 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         """Execute the pipeline and apply event hooks to the stream."""
         self._state = state
         self._context = context
-        self._invoker.set_context(state, context)
 
         async for event in self._execution_stream(start):
             yield self._apply_event_hooks(event)

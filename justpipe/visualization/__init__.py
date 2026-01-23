@@ -48,7 +48,6 @@ def generate_mermaid_graph(
     return renderer.render()
 
 
-
 __all__ = [
     # AST model
     "VisualAST",

@@ -126,4 +126,3 @@ class StepInfo:
     has_error_handler: bool
     targets: List[str]
     kind: str  # "step", "map", or "switch"
-

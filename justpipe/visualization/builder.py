@@ -11,6 +11,7 @@ from justpipe.visualization.ast import (
     VisualNode,
 )
 from justpipe.steps import _BaseStep, _MapStep, _SwitchStep, _SubPipelineStep
+from justpipe.types import _Stop
 
 
 class _PipelineASTBuilder:
@@ -42,7 +43,8 @@ class _PipelineASTBuilder:
 
         # Identify streaming nodes
         streaming_nodes = {
-            name for name, s in steps.items() 
+            name
+            for name, s in steps.items()
             if inspect.isasyncgenfunction(s.original_func)
         }
 
@@ -83,10 +85,10 @@ class _PipelineASTBuilder:
         nodes: Dict[str, VisualNode] = {}
         for name in all_nodes:
             step: Optional[_BaseStep] = steps.get(name)
-            
+
             # Determine kind
             kind_str = step.get_kind() if step else "step"
-            
+
             if kind_str == "switch":
                 kind = NodeKind.SWITCH
             elif kind_str == "sub":
@@ -106,7 +108,7 @@ class _PipelineASTBuilder:
                         sub_pipe._steps,
                         sub_pipe._topology,
                     )
-            
+
             node_metadata: Dict[str, Any] = {}
 
             nodes[name] = VisualNode(
@@ -137,10 +139,12 @@ class _PipelineASTBuilder:
 
             if isinstance(step_obj, _SwitchStep):
                 if isinstance(step_obj.routes, dict):
-                    for val, target in step_obj.routes.items():
-                        if target != "Stop":
+                    for val, route_target in step_obj.routes.items():
+                        if not isinstance(route_target, _Stop):
                             edges.append(
-                                VisualEdge(source=src, target=target, label=str(val))
+                                VisualEdge(
+                                    source=src, target=route_target, label=str(val)
+                                )
                             )
 
                 default = step_obj.default

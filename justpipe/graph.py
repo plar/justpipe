@@ -5,15 +5,19 @@ from typing import Any, Callable, Dict, List, Set, Union, Tuple
 from justpipe.types import Stop, _resolve_name
 from justpipe.steps import _BaseStep, _MapStep, _SwitchStep
 
+
 @dataclass
 class TransitionResult:
     steps_to_start: List[str] = field(default_factory=list)
     barriers_to_schedule: List[Tuple[str, float]] = field(default_factory=list)
     barriers_to_cancel: List[str] = field(default_factory=list)
 
+
 def _validate_routing_target(target: Any) -> None:
     """Validate that a routing target is a valid name or callable."""
     if isinstance(target, str):
+        pass
+    elif callable(target):
         pass
     elif isinstance(target, list):
         for t in target:
@@ -22,6 +26,10 @@ def _validate_routing_target(target: Any) -> None:
         for t in target.values():
             if id(t) != id(Stop):
                 _validate_routing_target(t)
+    else:
+        raise ValueError(
+            f"Invalid routing target type: {type(target).__name__}. Expected str, callable, list, or dict."
+        )
 
 
 class _DependencyGraph:
@@ -70,14 +78,14 @@ class _DependencyGraph:
         Process the completion of a node and determine next actions.
         """
         result = TransitionResult()
-        
+
         for succ in self.get_successors(completed_node):
             is_first = len(self._completed_parents[succ]) == 0
             self._completed_parents[succ].add(completed_node)
             parents_needed = self._parents_map[succ]
 
             is_ready = self._completed_parents[succ] >= parents_needed
-            
+
             if is_ready:
                 # If ready, we can start the step.
                 # Also if we were waiting for a barrier, we should cancel it.
@@ -94,7 +102,7 @@ class _DependencyGraph:
                     timeout = step.barrier_timeout if step else None
                     if timeout:
                         result.barriers_to_schedule.append((succ, timeout))
-                        
+
         return result
 
     def is_barrier_satisfied(self, node: str) -> bool:

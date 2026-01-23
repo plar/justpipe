@@ -11,6 +11,7 @@ from typing import (
 from justpipe.middleware import Middleware, tenacity_retry_middleware
 from justpipe.types import (
     Event,
+    Stop,
     StepInfo,
     _resolve_name,
     _Stop,
@@ -24,6 +25,7 @@ from justpipe.steps import (
 )
 from justpipe.utils import _analyze_signature
 from justpipe.graph import _validate_routing_target
+
 
 class _PipelineRegistry:
     def __init__(
@@ -39,7 +41,7 @@ class _PipelineRegistry:
         )
         self.state_type = state_type
         self.context_type = context_type
-        
+
         # Maps step name to the executable _BaseStep object
         self.steps: Dict[str, _BaseStep] = {}
         self.topology: Dict[str, List[str]] = {}
@@ -70,6 +72,12 @@ class _PipelineRegistry:
         )
         return func
 
+    def finalize(self) -> None:
+        """Apply middleware to all steps. Called before run to ensure all middleware is applied."""
+        for step in self.steps.values():
+            if step._wrapped_func is None:
+                step.wrap_middleware(self.middleware)
+
     def _register_step(
         self,
         step_obj: _BaseStep,
@@ -81,9 +89,6 @@ class _PipelineRegistry:
     ) -> str:
         stage_name = step_obj.name
         self.steps[stage_name] = step_obj
-
-        # Apply middleware immediately
-        step_obj.wrap_middleware(self.middleware)
 
         self.injection_metadata[stage_name] = _analyze_signature(
             step_obj.original_func,
@@ -117,23 +122,25 @@ class _PipelineRegistry:
     ) -> Callable[..., Any]:
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             stage_name = _resolve_name(name or func)
-            
+
             # Extract generic step kwargs
             timeout = kwargs.pop("timeout", None)
             retries = kwargs.pop("retries", 0)
-            
+
             step_obj = _StandardStep(
                 name=stage_name,
                 func=func,
-                to=[_resolve_name(t) for t in (to if isinstance(to, list) else [to])] if to else None,
+                to=[_resolve_name(t) for t in (to if isinstance(to, list) else [to])]
+                if to
+                else None,
                 timeout=timeout,
                 retries=retries,
                 barrier_timeout=barrier_timeout,
                 on_error=on_error,
                 pipe_name=self.pipe_name,
-                extra=kwargs
+                extra=kwargs,
             )
-            
+
             self._register_step(step_obj, to, on_error)
             return func
 
@@ -160,7 +167,7 @@ class _PipelineRegistry:
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             stage_name = _resolve_name(name or func)
             target_name = _resolve_name(using)
-            
+
             timeout = kwargs.pop("timeout", None)
             retries = kwargs.pop("retries", 0)
 
@@ -168,13 +175,15 @@ class _PipelineRegistry:
                 name=stage_name,
                 func=func,
                 map_target=target_name,
-                to=[_resolve_name(t) for t in (to if isinstance(to, list) else [to])] if to else None,
+                to=[_resolve_name(t) for t in (to if isinstance(to, list) else [to])]
+                if to
+                else None,
                 timeout=timeout,
                 retries=retries,
                 barrier_timeout=barrier_timeout,
                 on_error=on_error,
                 pipe_name=self.pipe_name,
-                extra=kwargs
+                extra=kwargs,
             )
 
             self._register_step(step_obj, to, on_error)
@@ -211,14 +220,14 @@ class _PipelineRegistry:
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             stage_name = _resolve_name(name or func)
-            
+
             normalized_routes = {}
             if isinstance(routes, dict):
                 for key, target in routes.items():
                     normalized_routes[key] = (
-                        "Stop" if isinstance(target, _Stop) else _resolve_name(target)
+                        Stop if isinstance(target, _Stop) else _resolve_name(target)
                     )
-            
+
             timeout = kwargs.pop("timeout", None)
             retries = kwargs.pop("retries", 0)
 
@@ -232,7 +241,7 @@ class _PipelineRegistry:
                 barrier_timeout=barrier_timeout,
                 on_error=on_error,
                 pipe_name=self.pipe_name,
-                extra=kwargs
+                extra=kwargs,
             )
 
             self._register_step(step_obj, None, on_error)
@@ -254,11 +263,9 @@ class _PipelineRegistry:
         if using is None:
             raise ValueError("@pipe.sub requires 'using' parameter")
 
-        _validate_routing_target(using)
-
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             stage_name = _resolve_name(name or func)
-            
+
             timeout = kwargs.pop("timeout", None)
             retries = kwargs.pop("retries", 0)
 
@@ -267,13 +274,15 @@ class _PipelineRegistry:
                 func=func,
                 sub_pipeline_name=using.name if hasattr(using, "name") else "SubPipe",
                 sub_pipeline_obj=using,
-                to=[_resolve_name(t) for t in (to if isinstance(to, list) else [to])] if to else None,
+                to=[_resolve_name(t) for t in (to if isinstance(to, list) else [to])]
+                if to
+                else None,
                 timeout=timeout,
                 retries=retries,
                 barrier_timeout=barrier_timeout,
                 on_error=on_error,
                 pipe_name=self.pipe_name,
-                extra=kwargs
+                extra=kwargs,
             )
 
             self._register_step(step_obj, to, on_error)
@@ -286,7 +295,7 @@ class _PipelineRegistry:
         for name, step in self.steps.items():
             targets = list(self.topology.get(name, []))
             targets.extend(step.get_targets())
-            
+
             unique_targets = sorted(list(set(targets)))
 
             yield StepInfo(
