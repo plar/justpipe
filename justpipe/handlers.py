@@ -30,6 +30,7 @@ class _FailureHandler:
         error: Exception,
         state: Optional[Any] = None,
         context: Optional[Any] = None,
+        track_owner: bool = True,
     ) -> None:
         """Centralized error handling logic with escalation."""
         step = self._steps.get(name)
@@ -41,7 +42,9 @@ class _FailureHandler:
                 res = await self._invoker.execute_handler(
                     local_handler, error, name, state, context, is_global=False
                 )
-                await self._queue.put(_StepResult(owner, name, res, payload))
+                await self._queue.put(
+                    _StepResult(owner, name, res, payload, track_owner=track_owner)
+                )
                 return
             except Exception as new_error:
                 # Local handler failed, escalate to global
@@ -54,18 +57,22 @@ class _FailureHandler:
                 res = await self._invoker.execute_handler(
                     global_handler, error, name, state, context, is_global=True
                 )
-                await self._queue.put(_StepResult(owner, name, res, payload))
+                await self._queue.put(
+                    _StepResult(owner, name, res, payload, track_owner=track_owner)
+                )
                 return
             except Exception as final_error:
                 error = final_error
 
         # 3. Default Reporting (Terminal)
         self._log_error(name, error, state)
-        await self._report_error(name, owner, error)
+        await self._report_error(name, owner, error, track_owner=track_owner)
 
-    async def _report_error(self, name: str, owner: str, error: Exception) -> None:
+    async def _report_error(
+        self, name: str, owner: str, error: Exception, track_owner: bool
+    ) -> None:
         await self._queue.put(Event(EventType.ERROR, name, str(error)))
-        await self._queue.put(_StepResult(owner, name, None))
+        await self._queue.put(_StepResult(owner, name, None, track_owner=track_owner))
 
     def _log_error(self, name: str, error: Exception, state: Optional[Any]) -> None:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")

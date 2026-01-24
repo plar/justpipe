@@ -25,6 +25,7 @@ class _StepResult:
     name: str
     result: Any
     payload: Optional[Dict[str, Any]] = None
+    track_owner: bool = True
 
 
 class _StepInvoker(Generic[StateT, ContextT]):

@@ -69,6 +69,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         self._tg: Optional[asyncio.TaskGroup] = None
         self._barrier_tasks: Dict[str, asyncio.Task[Any]] = {}
         self._skipped_owners: Set[str] = set()
+        self._failed_barriers: Set[str] = set()
 
         # Components
         self._invoker: _StepInvoker[StateT, ContextT] = _StepInvoker(
@@ -105,12 +106,16 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             except asyncio.QueueFull:
                 await asyncio.sleep(0)
 
+    def _increment_active(self, owner: str, track_owner: bool = True) -> None:
+        if track_owner:
+            self._logical_active[owner] += 1
+        self._total_active_tasks += 1
+
     def _spawn(self, coro: Any, owner: str) -> None:
         if self._stopping or not self._tg:
             coro.close()
             return
-        self._logical_active[owner] += 1
-        self._total_active_tasks += 1
+        self._increment_active(owner, track_owner=True)
         self._tg.create_task(coro)
 
     def _schedule(
@@ -183,12 +188,13 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                     self._stopping = True
             elif isinstance(item, _StepResult):
                 self._total_active_tasks -= 1
-                self._logical_active[item.owner] -= 1
+                if item.track_owner:
+                    self._logical_active[item.owner] -= 1
 
                 async for event in self._process_step_result(item):
                     yield event
 
-                if self._logical_active[item.owner] == 0:
+                if item.track_owner and self._logical_active[item.owner] == 0:
                     yield Event(EventType.STEP_END, item.owner, self._state)
                     self._handle_completion(item.owner)
 
@@ -250,6 +256,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             self._schedule(res.target, owner=owner, payload=payload)
 
     async def _barrier_timeout_watcher(self, name: str, timeout: float) -> None:
+        timed_out = False
         try:
             await asyncio.sleep(timeout)
             if (
@@ -257,6 +264,10 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                 and self._barrier_tasks[name] is asyncio.current_task()
             ):
                 if not self._graph.is_barrier_satisfied(name):
+                    timed_out = True
+                    self._failed_barriers.add(name)
+                    if name in self._barrier_tasks:
+                        del self._barrier_tasks[name]
                     await self._failure_handler.handle_failure(
                         name,
                         name,
@@ -266,11 +277,13 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                         ),
                         self._state,
                         self._context,
+                        track_owner=False,
                     )
         except asyncio.CancelledError:
             pass
         finally:
-            self._total_active_tasks -= 1
+            if not timed_out:
+                await self._safe_put(_StepResult(name, name, None, track_owner=False))
 
     def _handle_completion(self, owner: str) -> None:
         if owner in self._skipped_owners:
@@ -285,11 +298,12 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                 del self._barrier_tasks[barrier_node]
 
         for step_name in result.steps_to_start:
-            self._schedule(step_name)
+            if step_name not in self._failed_barriers:
+                self._schedule(step_name)
 
         for barrier_node, timeout in result.barriers_to_schedule:
-            if self._tg:
-                self._total_active_tasks += 1
+            if self._tg and barrier_node not in self._failed_barriers:
+                self._increment_active(barrier_node, track_owner=False)
                 self._barrier_tasks[barrier_node] = self._tg.create_task(
                     self._barrier_timeout_watcher(barrier_node, timeout)
                 )
