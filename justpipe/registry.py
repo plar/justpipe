@@ -294,7 +294,6 @@ class _PipelineRegistry:
             step_obj = _SubPipelineStep(
                 name=stage_name,
                 func=func,
-                sub_pipeline_name=using.name if hasattr(using, "name") else "SubPipe",
                 sub_pipeline_obj=using,
                 to=[_resolve_name(t) for t in (to if isinstance(to, list) else [to])]
                 if to

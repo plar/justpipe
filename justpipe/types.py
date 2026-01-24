@@ -58,7 +58,6 @@ Stop = _Stop()
 @dataclass
 class _Next:
     target: Union[str, Callable[..., Any], None]
-    metadata: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def stage(self) -> Optional[str]:

@@ -43,7 +43,9 @@ class _BaseStep(ABC):
     @property
     def _func(self) -> Callable[..., Any]:
         """Return the wrapped function if middleware was applied, otherwise the original."""
-        return self._wrapped_func if self._wrapped_func is not None else self.original_func
+        return (
+            self._wrapped_func if self._wrapped_func is not None else self.original_func
+        )
 
     def wrap_middleware(self, middleware: List["Middleware"]) -> None:
         """Apply middleware to the step function."""
@@ -188,13 +190,11 @@ class _SubPipelineStep(_BaseStep):
         self,
         name: str,
         func: Callable[..., Any],
-        sub_pipeline_name: str,
         sub_pipeline_obj: Any,
         to: Optional[List[str]] = None,
         **kwargs: Any,
     ):
         super().__init__(name, func, **kwargs)
-        self.sub_pipeline_name = sub_pipeline_name
         self.sub_pipeline_obj = sub_pipeline_obj
         self.to = to or []
 

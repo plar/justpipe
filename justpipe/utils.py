@@ -16,6 +16,7 @@ def _analyze_signature(
     expected_unknowns: int = 0,
 ) -> Dict[str, str]:
     """Analyze function signature and map parameters to state or context."""
+
     def _matches_expected_type(annotation: Any, expected_type: Any) -> bool:
         if expected_type is Any or annotation is inspect.Parameter.empty:
             return False
