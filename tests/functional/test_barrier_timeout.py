@@ -53,3 +53,30 @@ async def test_barrier_timeout_failure() -> None:
     assert len(errors) >= 1
     assert "Barrier timeout" in str(errors[0].data)
     assert state.get("done") is None
+
+
+@pytest.mark.asyncio
+async def test_barrier_timeout_does_not_skip_other_targets() -> None:
+    pipe: Pipe[Dict[str, Any], None] = Pipe()
+
+    @pipe.step(to="combine")
+    async def step_a(state: Dict[str, Any]) -> None:
+        await asyncio.sleep(0.01)
+
+    @pipe.step(to=["combine", "after_b"])
+    async def step_b(state: Dict[str, Any]) -> None:
+        await asyncio.sleep(0.5)
+
+    @pipe.step(barrier_timeout=0.05)
+    async def combine(state: Dict[str, Any]) -> None:
+        state["combine_done"] = True
+
+    @pipe.step()
+    async def after_b(state: Dict[str, Any]) -> None:
+        state["after_b"] = True
+
+    state: Dict[str, Any] = {}
+    async for _ in pipe.run(state):
+        pass
+
+    assert state.get("after_b") is True

@@ -16,9 +16,7 @@ except ImportError:
 
 
 # 1. Define custom middleware
-def timing_middleware(
-    func: Callable[..., Any], ctx: StepContext
-) -> Callable[..., Any]:
+def timing_middleware(func: Callable[..., Any], ctx: StepContext) -> Callable[..., Any]:
     """Middleware that measures and logs execution time of a step."""
     import inspect
 

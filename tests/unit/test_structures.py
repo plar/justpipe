@@ -30,5 +30,5 @@ def test_next_creation_none() -> None:
 
 
 def test_next_metadata() -> None:
-    next_step = _Next(target="a", metadata={"priority": 1})
-    assert next_step.metadata == {"priority": 1}
+    next_step = _Next(target="a")
+    assert next_step.target == "a"

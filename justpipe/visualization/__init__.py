@@ -9,13 +9,14 @@ from justpipe.visualization.ast import (
     VisualEdge,
     VisualNode,
 )
-from justpipe.visualization.mermaid import MermaidRenderer, MermaidTheme
+from justpipe.visualization.builder import _PipelineASTBuilder
+from justpipe.visualization.mermaid import _MermaidRenderer, MermaidTheme
+from justpipe.steps import _BaseStep
 
 
 def generate_mermaid_graph(
-    steps: Dict[str, Callable[..., Any]],
+    steps: Dict[str, _BaseStep],
     topology: Dict[str, List[str]],
-    step_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
     startup_hooks: Optional[List[Callable[..., Any]]] = None,
     shutdown_hooks: Optional[List[Callable[..., Any]]] = None,
     *,
@@ -26,9 +27,8 @@ def generate_mermaid_graph(
     Generate a Mermaid diagram from the pipeline structure.
 
     Args:
-        steps: Map of registered step functions.
+        steps: Map of registered step objects (BaseStep).
         topology: Map of static execution paths.
-        step_metadata: Optional metadata for steps (map/switch info).
         startup_hooks: Optional list of startup hook functions.
         shutdown_hooks: Optional list of shutdown hook functions.
         theme: Optional MermaidTheme for custom styling.
@@ -38,14 +38,13 @@ def generate_mermaid_graph(
         A Mermaid.js diagram string.
     """
     effective_theme = theme or MermaidTheme(direction=direction)
-    ast = VisualAST.from_pipe(
+    ast = _PipelineASTBuilder.build(
         steps,
         topology,
-        step_metadata or {},
         startup_hooks=startup_hooks,
         shutdown_hooks=shutdown_hooks,
     )
-    renderer = MermaidRenderer(ast, effective_theme)
+    renderer = _MermaidRenderer(ast, effective_theme)
     return renderer.render()
 
 
@@ -56,8 +55,10 @@ __all__ = [
     "VisualEdge",
     "ParallelGroup",
     "NodeKind",
+    # Builder
+    "_PipelineASTBuilder",
     # Mermaid rendering
-    "MermaidRenderer",
+    "_MermaidRenderer",
     "MermaidTheme",
     # Convenience function
     "generate_mermaid_graph",

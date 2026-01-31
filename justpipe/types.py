@@ -58,7 +58,6 @@ Stop = _Stop()
 @dataclass
 class _Next:
     target: Union[str, Callable[..., Any], None]
-    metadata: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def stage(self) -> Optional[str]:
@@ -112,6 +111,7 @@ class StepContext:
     name: str
     kwargs: Dict[str, Any]
     pipe_name: str
+    retries: Union[int, Dict[str, Any]] = 0
 
 
 @dataclass
@@ -125,3 +125,11 @@ class StepInfo:
     has_error_handler: bool
     targets: List[str]
     kind: str  # "step", "map", or "switch"
+
+
+@dataclass
+class HookSpec:
+    """Lifecycle hook with its injection metadata."""
+
+    func: Callable[..., Any]
+    injection_metadata: Dict[str, str]

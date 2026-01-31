@@ -1,15 +1,16 @@
-from .core import Pipe, simple_logging_middleware
+from .pipe import Pipe
+from .middleware import simple_logging_middleware
 from .types import (
+    DefinitionError,
     Event,
     EventType,
-    Suspend,
-    Stop,
-    DefinitionError,
+    Raise,
     Retry,
     Skip,
-    Raise,
     StepContext,
     StepInfo,
+    Stop,
+    Suspend,
 )
 
 __all__ = [

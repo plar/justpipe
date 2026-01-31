@@ -77,11 +77,15 @@ def test_step_with_default_values() -> None:
 
     # 1 unknown + 1 with default = OK
     @pipe.step()
-    def step_with_one_unknown_and_default(item: Any, state: State, extra: int = 10) -> None:
+    def step_with_one_unknown_and_default(
+        item: Any, state: State, extra: int = 10
+    ) -> None:
         pass
 
     with pytest.raises(DefinitionError, match="unrecognized parameters"):
         # 2 unknowns + 1 with default = FAIL
         @pipe.step()
-        def step_with_two_unknowns_and_default(a: Any, b: Any, state: State, extra: int = 10) -> None:
+        def step_with_two_unknowns_and_default(
+            a: Any, b: Any, state: State, extra: int = 10
+        ) -> None:
             pass

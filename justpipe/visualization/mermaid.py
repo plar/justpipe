@@ -66,13 +66,24 @@ class MermaidTheme:
         ]
 
 
-class MermaidRenderer:
+class _MermaidRenderer:
     """Renders VisualAST to Mermaid.js string."""
 
     def __init__(self, ast: VisualAST, theme: Optional[MermaidTheme] = None):
         self.ast = ast
         self.theme = theme or MermaidTheme()
         self.lines: List[str] = [self.theme.render_header()]
+
+    def render(self) -> str:
+        """Generate complete Mermaid diagram."""
+        self._render_graph_content(self.ast, prefix="", indent=4)
+
+        # Render styles at the end
+        self.lines.append("")
+        for style_line in self.theme.render_styles():
+            self._add(style_line, indent=4)
+
+        return "\n".join(self.lines)
 
     def _add(self, line: str, indent: int = 4) -> None:
         """Append a line with proper indentation."""
@@ -122,7 +133,7 @@ class MermaidRenderer:
 
     def _get_isolated_nodes(self, ast: VisualAST) -> Set[str]:
         """Get all isolated nodes."""
-        return {name for name, node in self.ast.nodes.items() if node.is_isolated}
+        return {name for name, node in ast.nodes.items() if node.is_isolated}
 
     def _render_graph_content(
         self,
@@ -135,22 +146,9 @@ class MermaidRenderer:
             self._add(f"{prefix}Empty[No steps registered]", indent)
             return
 
-        # Render Startup Hooks
         start_target_id = f"{prefix}Start"
-        if ast.startup_hooks:
-            last_hook_id = None
-            self._add(f"subgraph {prefix}startup[Startup Hooks]", indent)
-            self._add("direction TB", indent + 4)
-            for i, h_name in enumerate(ast.startup_hooks):
-                node_id = f"{prefix}startup_{i}"
-                label = self._format_label(h_name)
-                self._add(f"{node_id}> {label} ]", indent + 4)
-                if last_hook_id:
-                    self._add(f"{last_hook_id} --> {node_id}", indent + 4)
-                last_hook_id = node_id
-            self._add("end", indent)
 
-            self._add(f"{prefix}startup --> {start_target_id}", indent)
+        self._render_startup_hooks(ast, prefix, indent, start_target_id)
 
         # Start node
         self._add(f'{start_target_id}(["▶ Start"])', indent)
@@ -158,22 +156,8 @@ class MermaidRenderer:
         grouped = self._get_grouped_nodes(ast)
         isolated = self._get_isolated_nodes(ast)
 
-        # Render parallel groups as subgraphs
-        for group in ast.parallel_groups:
-            self.lines.append("")
-            self._add(f"subgraph {prefix}{group.id}[Parallel]", indent)
-            self._add("direction LR", indent + 4)
-            for node_name in sorted(group.node_ids):
-                node = ast.nodes[node_name]
-                self._add(self._render_node(node, prefix), indent + 4)
-            self._add("end", indent)
-
-        # Render main flow nodes (not grouped, not isolated)
-        self.lines.append("")
-        for name in sorted(ast.nodes.keys()):
-            if name not in grouped and name not in isolated:
-                node = ast.nodes[name]
-                self._add(self._render_node(node, prefix), indent)
+        self._render_parallel_groups(ast, prefix, indent)
+        self._render_main_nodes(ast, prefix, indent, grouped, isolated)
 
         # End node
         terminal_non_isolated = [
@@ -193,7 +177,67 @@ class MermaidRenderer:
                 node = ast.nodes[name]
                 self._add(f"{prefix}{node.id} --> {end_source_id}", indent)
 
-        # Render Shutdown Hooks
+        self._render_shutdown_hooks(ast, prefix, indent, end_source_id)
+
+        self.lines.append("")
+        self._render_start_connections(ast, prefix, indent, start_target_id)
+        self._render_edges(ast, prefix, indent)
+
+        self._render_isolated_nodes(ast, prefix, indent, isolated)
+
+        self._apply_classes(ast, prefix)
+
+        self._render_sub_pipelines(ast, prefix, indent)
+
+    def _render_startup_hooks(
+        self, ast: VisualAST, prefix: str, indent: int, start_target_id: str
+    ) -> None:
+        if ast.startup_hooks:
+            last_hook_id = None
+            self._add(f"subgraph {prefix}startup[Startup Hooks]", indent)
+            self._add("direction TB", indent + 4)
+            for i, h_name in enumerate(ast.startup_hooks):
+                node_id = f"{prefix}startup_{i}"
+                label = self._format_label(h_name)
+                self._add(f"{node_id}> {label} ]", indent + 4)
+                if last_hook_id:
+                    self._add(f"{last_hook_id} --> {node_id}", indent + 4)
+                last_hook_id = node_id
+            self._add("end", indent)
+
+            self._add(f"{prefix}startup --> {start_target_id}", indent)
+
+    def _render_parallel_groups(self, ast: VisualAST, prefix: str, indent: int) -> None:
+        for group in ast.parallel_groups:
+            self.lines.append("")
+            self._add(f"subgraph {prefix}{group.id}[Parallel]", indent)
+            self._add("direction LR", indent + 4)
+            for node_name in sorted(group.node_ids):
+                node = ast.nodes[node_name]
+                self._add(self._render_node(node, prefix), indent + 4)
+            self._add("end", indent)
+
+    def _render_main_nodes(
+        self,
+        ast: VisualAST,
+        prefix: str,
+        indent: int,
+        grouped: Set[str],
+        isolated: Set[str],
+    ) -> None:
+        self.lines.append("")
+        for name in sorted(ast.nodes.keys()):
+            if name not in grouped and name not in isolated:
+                node = ast.nodes[name]
+                self._add(self._render_node(node, prefix), indent)
+
+    def _render_shutdown_hooks(
+        self,
+        ast: VisualAST,
+        prefix: str,
+        indent: int,
+        end_source_id: Optional[str],
+    ) -> None:
         if ast.shutdown_hooks and end_source_id:
             last_hook_id = None
 
@@ -211,15 +255,14 @@ class MermaidRenderer:
 
             self._add(f"{end_source_id} --> {prefix}shutdown", indent)
 
-        # Render edges
-        self.lines.append("")
-
-        # Connect Start to entry points
+    def _render_start_connections(
+        self, ast: VisualAST, prefix: str, indent: int, start_target_id: str
+    ) -> None:
         for name, node in sorted(ast.nodes.items()):
             if node.is_entry and not node.is_isolated:
                 self._add(f"{start_target_id} --> {prefix}{node.id}", indent)
 
-        # Render all edges
+    def _render_edges(self, ast: VisualAST, prefix: str, indent: int) -> None:
         for edge in sorted(ast.edges, key=lambda e: (e.source, e.target)):
             src_node = ast.nodes[edge.source]
             tgt_node = ast.nodes[edge.target]
@@ -233,7 +276,9 @@ class MermaidRenderer:
             else:
                 self._add(f"{src_id} --> {tgt_id}", indent)
 
-        # Render isolated nodes
+    def _render_isolated_nodes(
+        self, ast: VisualAST, prefix: str, indent: int, isolated: Set[str]
+    ) -> None:
         if isolated:
             self.lines.append("")
             self._add(f"subgraph {prefix}utilities[Utilities]", indent)
@@ -246,10 +291,7 @@ class MermaidRenderer:
                 )
             self._add("end", indent)
 
-        # Apply classes to nodes
-        self._apply_classes(ast, prefix)
-
-        # Recursively render sub-pipelines
+    def _render_sub_pipelines(self, ast: VisualAST, prefix: str, indent: int) -> None:
         for name, node in sorted(ast.nodes.items()):
             if node.sub_graph:
                 self.lines.append("")
@@ -312,14 +354,3 @@ class MermaidRenderer:
         # Start/End nodes for this level
         if ast.nodes:
             self._add(f"class {prefix}Start,{prefix}End startEnd;")
-
-    def render(self) -> str:
-        """Generate complete Mermaid diagram."""
-        self._render_graph_content(self.ast, prefix="", indent=4)
-
-        # Render styles at the end
-        self.lines.append("")
-        for style_line in self.theme.render_styles():
-            self._add(style_line, indent=4)
-
-        return "\n".join(self.lines)

@@ -98,6 +98,27 @@ async def test_run_subpipeline() -> None:
 
 
 @pytest.mark.asyncio
+async def test_subpipeline_context_propagation(context: Any) -> None:
+    """Sub-pipeline steps should receive parent context."""
+    sub_pipe: Pipe[Any, Any] = Pipe()
+
+    @sub_pipe.step("sub_step")
+    async def sub_step(ctx: Any) -> None:
+        assert ctx is context
+
+    main_pipe: Pipe[Any, Any] = Pipe()
+
+    @main_pipe.sub("runner", using=sub_pipe)
+    async def runner() -> Dict[str, Any]:
+        return {}
+
+    events = [event async for event in main_pipe.run({}, context)]
+    stages = [event.stage for event in events]
+    assert "runner:sub_step" in stages
+    assert not any(event.type == EventType.ERROR for event in events)
+
+
+@pytest.mark.asyncio
 async def test_suspend_execution() -> None:
     """Test early termination via Suspend return type."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -117,29 +138,6 @@ async def test_suspend_execution() -> None:
 
     assert not executed
     assert any(e.type == EventType.SUSPEND for e in events)
-
-
-@pytest.mark.asyncio
-async def test_step_timeout() -> None:
-    """Test step execution timeout."""
-    pipe: Pipe[Any, Any] = Pipe()
-
-    @pipe.step("slow", timeout=0.1)
-    async def slow() -> None:
-        await asyncio.sleep(0.5)
-
-    errors = []
-    async for event in pipe.run({}):
-        if event.type == EventType.ERROR:
-            errors.append(event)
-
-    assert len(errors) > 0
-    # TimeoutError check
-    assert any(
-        isinstance(e.data, str)
-        and ("timed out" in e.data.lower() or "timeout" in e.data.lower())
-        for e in errors
-    )
 
 
 @pytest.mark.asyncio

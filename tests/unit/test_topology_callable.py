@@ -2,6 +2,7 @@ import pytest
 from typing import Any
 from justpipe import Pipe, Stop
 from justpipe.types import _resolve_name
+from justpipe.steps import _StandardStep, _MapStep, _SwitchStep
 
 
 def global_step_a(state: Any) -> None:
@@ -46,21 +47,11 @@ def test_pipe_step_list_callable_routing() -> None:
         pass
 
     # Manually register step_c since it wasn't decorated
-    pipe._steps["step_c"] = step_c
+    pipe._steps["step_c"] = _StandardStep(name="step_c", func=step_c)
 
     assert "step_a" in pipe._topology
     assert "step_b" in pipe._topology["step_a"]
     assert "step_c" in pipe._topology["step_a"]
-
-
-def test_pipe_string_routing_warning() -> None:
-    pipe: Pipe[None, None] = Pipe()
-
-    with pytest.warns(DeprecationWarning, match="String-based topology"):
-
-        @pipe.step(to="step_b")
-        def step_a(state: Any) -> None:
-            pass
 
 
 def test_pipe_map_callable_routing() -> None:
@@ -79,7 +70,9 @@ def test_pipe_map_callable_routing() -> None:
         return [1, 2, 3]
 
     # Check internal metadata
-    assert pipe._step_metadata["generator"]["map_target"] == "processor"
+    step = pipe.registry.steps["generator"]
+    assert isinstance(step, _MapStep)
+    assert step.map_target == "processor"
     assert pipe._topology["generator"] == ["step_b"]
 
 
@@ -98,10 +91,13 @@ def test_pipe_switch_callable_routing() -> None:
     def decider(state: Any) -> str:
         return "a"
 
-    meta = pipe._step_metadata["decider"]
-    assert meta["switch_routes"]["a"] == "path_a"
-    assert meta["switch_routes"]["b"] == "path_b"
-    assert meta["switch_default"] == "path_b"
+    step = pipe.registry.steps["decider"]
+    assert isinstance(step, _SwitchStep)
+    # Cast/Assure routes is dict for test
+    assert isinstance(step.routes, dict)
+    assert step.routes["a"] == "path_a"
+    assert step.routes["b"] == "path_b"
+    assert step.default == "path_b"
 
 
 def test_pipe_switch_stop_routing() -> None:
@@ -112,7 +108,10 @@ def test_pipe_switch_stop_routing() -> None:
         return "a"
 
     # Should not raise warning for Stop
-    assert pipe._step_metadata["decider"]["switch_routes"]["a"] == "Stop"
+    step = pipe.registry.steps["decider"]
+    assert isinstance(step, _SwitchStep)
+    assert isinstance(step.routes, dict)
+    assert step.routes["a"] is Stop
 
 
 def test_pipe_validation_ok() -> None:
@@ -160,8 +159,8 @@ def test_pipe_validation_unreachable_cycle() -> None:
     # A cycle with no entry point
     pipe._topology["a"] = ["b"]
     pipe._topology["b"] = ["a"]
-    pipe._steps["a"] = lambda s: None
-    pipe._steps["b"] = lambda s: None
+    pipe._steps["a"] = _StandardStep(name="a", func=lambda s: None)
+    pipe._steps["b"] = _StandardStep(name="b", func=lambda s: None)
 
     with pytest.raises(ValueError, match="no entry points found"):
         pipe.validate()
@@ -192,8 +191,10 @@ def test_map_on_error_and_to() -> None:
         return [1]
 
     # Just ensure no error and metadata is correct
-    assert pipe._step_metadata["mapper"]["map_target"] == "target"
-    assert pipe._step_metadata["mapper"]["on_error"] is not None
+    step = pipe.registry.steps["mapper"]
+    assert isinstance(step, _MapStep)
+    assert step.map_target == "target"
+    assert step.on_error is not None
 
 
 def test_switch_missing_routes() -> None:
