@@ -1,4 +1,4 @@
-# 12 Observability
+# [12 Observability](../README.md#production-reliability)
 
 Monitor, debug, and analyze pipeline execution with justpipe's comprehensive observability features.
 
@@ -302,3 +302,8 @@ graph TD
     classDef isolated fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5,color:#880e4f;
     classDef startEnd fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#1b5e20;
 ```
+
+## See Also
+
+- **[14 Testing Harness](../14_testing_harness)**: Use observability concepts in your unit tests.
+- **[09 Middleware](../09_middleware)**: Build custom loggers.

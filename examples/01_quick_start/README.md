@@ -1,4 +1,4 @@
-# 01 Quick Start
+# [01 Quick Start](../README.md#getting-started)
 
 This example demonstrates the most basic usage of `justpipe`.
 
@@ -55,3 +55,8 @@ graph TD
     classDef isolated fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5,color:#880e4f;
     classDef startEnd fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#1b5e20;
 ```
+
+## See Also
+
+- **[11 Visualization](../11_visualization)**: See how this graph was generated.
+- **[07 Streaming](../07_streaming)**: Learn more about the  keyword used here.

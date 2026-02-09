@@ -1,4 +1,4 @@
-# 05 Suspension & Resume (Human-in-the-Loop)
+# [05 Suspension](../README.md#ai--streaming)
 
 This example demonstrates how to use the `Suspend` object to pause pipeline execution, wait for external input, and then resume the flow. It implements the classic game "Yes, No, Black, White".
 
@@ -65,3 +65,8 @@ graph TD
     classDef isolated fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5,color:#880e4f;
     classDef startEnd fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#1b5e20;
 ```
+
+## See Also
+
+- **[04 Dynamic Routing](../04_dynamic_routing)**: Often used together to route based on user input.
+- **[12 Observability](../12_observability)**: Track suspended states and resuming.

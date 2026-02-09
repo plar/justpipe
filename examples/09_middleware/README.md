@@ -1,4 +1,4 @@
-# 09 Middleware
+# [09 Middleware](../README.md#production-reliability)
 
 This example demonstrates how to extend `justpipe` using custom middleware. Middleware wraps every step execution, allowing you to add cross-cutting concerns like logging, timing, tracing, or security checks.
 
@@ -45,3 +45,8 @@ graph TD
     classDef isolated fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5,color:#880e4f;
     classDef startEnd fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#1b5e20;
 ```
+
+## See Also
+
+- **[08 Reliability](../08_reliability_retry)**: Uses middleware under the hood for retries.
+- **[12 Observability](../12_observability)**: Uses observers, a more powerful cousin of middleware.

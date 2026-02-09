@@ -1,4 +1,4 @@
-# 02 Parallel DAG (Static Fan-out/Fan-in)
+# [02 Parallel DAG](../README.md#orchestration-patterns)
 
 This example demonstrates how to execute multiple steps in parallel and synchronize them using an implicit barrier.
 
@@ -62,3 +62,8 @@ graph TD
     classDef isolated fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5,color:#880e4f;
     classDef startEnd fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#1b5e20;
 ```
+
+## See Also
+
+- **[03 Dynamic Map](../03_dynamic_map)**: For parallelizing dynamic lists.
+- **[13 Barrier Types](../13_barrier_types)**: To control how parallel branches join (AND vs OR).

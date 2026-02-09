@@ -1,4 +1,4 @@
-# 10 Lifecycle Hooks
+# [10 Lifecycle Hooks](../README.md#production-reliability)
 
 This example demonstrates how to use lifecycle hooks (`on_startup` and `on_shutdown`) to manage resources like database connections.
 
@@ -59,3 +59,8 @@ graph TD
     classDef isolated fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5,color:#880e4f;
     classDef startEnd fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#1b5e20;
 ```
+
+## See Also
+
+- **[09 Middleware](../09_middleware)**: For per-step logic instead of per-pipeline logic.
+- **[12 Observability](../12_observability)**: Track pipeline startup and shutdown events.

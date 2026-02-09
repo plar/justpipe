@@ -1,4 +1,4 @@
-# 03 Dynamic Map (News Summarizer)
+# [03 Dynamic Map](../README.md#orchestration-patterns)
 
 This example demonstrates the `Map` feature, which allows you to spawn dynamic parallel tasks based on a list of items at runtime. It simulates (or performs) parallel summarization of news articles using the Google Gemini API.
 
@@ -82,3 +82,8 @@ graph TD
     classDef isolated fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5,color:#880e4f;
     classDef startEnd fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#1b5e20;
 ```
+
+## See Also
+
+- **[02 Parallel DAG](../02_parallel_dag)**: For static parallelism.
+- **[13 Barrier Types](../13_barrier_types)**: Learn how barriers work in fan-out scenarios.

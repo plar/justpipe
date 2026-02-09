@@ -1,4 +1,4 @@
-# Fuzzing Testing
+# Fuzz Testing
 
 ## Overview
 
@@ -120,7 +120,9 @@ This tells you exactly what inputs to use to reproduce the issue manually.
 To add a new fuzzing test:
 
 ```python
-from hypothesis import given, strategies as st
+from hypothesis import given, strategies as st, settings
+import pytest
+from justpipe import Pipe
 
 @given(your_parameter=st.integers(min_value=0, max_value=100))
 @settings(max_examples=50, deadline=2000)
@@ -176,7 +178,7 @@ Common hypothesis strategies used:
 - **Coverage**: No retries, successful after retries, exhausted retries
 
 ### 13. Barrier with Workers (`test_fuzz_barrier_with_workers`)
-- **Strategy**: Random worker counts (1-5)
+- **Strategy**: Random worker counts (1-5) and item counts
 - **Tests**: Barriers correctly wait for all workers to complete
 - **Coverage**: Single worker, multiple workers, barrier timeout
 

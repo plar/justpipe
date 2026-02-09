@@ -1,4 +1,4 @@
-# 04 Dynamic Routing (Switch)
+# [04 Dynamic Routing](../README.md#orchestration-patterns)
 
 This example demonstrates how to use the `@pipe.switch` decorator to route execution based on the return value of a step.
 
@@ -63,3 +63,7 @@ graph TD
     classDef isolated fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5,color:#880e4f;
     classDef startEnd fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#1b5e20;
 ```
+## See Also
+
+- **[05 Suspension](../05_suspension_resume)**: Another way to control flow (pausing vs branching).
+- **[06 Sub-pipelines](../06_subpipelines)**: Encapsulate complex branches into their own pipes.

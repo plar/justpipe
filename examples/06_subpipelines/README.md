@@ -1,4 +1,4 @@
-# 06 Sub-pipelines (Composition)
+# [06 Sub-pipelines](../README.md#orchestration-patterns)
 
 This example demonstrates how to compose pipelines by running one pipeline inside another. This allows you to build reusable, modular workflows.
 
@@ -79,3 +79,8 @@ graph TD
     classDef isolated fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5,color:#880e4f;
     classDef startEnd fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#1b5e20;
 ```
+
+## See Also
+
+- **[04 Dynamic Routing](../04_dynamic_routing)**: Route to different sub-pipelines based on logic.
+- **[11 Visualization](../11_visualization)**: See how nested pipelines are rendered.

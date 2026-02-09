@@ -27,7 +27,8 @@ This guide explains how to safely manage state in concurrent justpipe pipelines.
 ### Sequential Execution (Safe to Mutate)
 
 ```python
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 @dataclass
 class State:
@@ -201,6 +202,7 @@ If you absolutely need mutable state (e.g., large shared data structures), imple
 ```python
 import asyncio
 from dataclasses import dataclass, field
+from typing import Any
 
 @dataclass
 class MutableState:
@@ -241,6 +243,7 @@ async def worker(state: MutableState, item: int):
 ```python
 import asyncio
 from dataclasses import dataclass, field
+from typing import Any
 
 @dataclass
 class MutableState:
@@ -318,7 +321,8 @@ async def step_b(state: MutableState, item: int):
 Keep mutable data in context, not state:
 
 ```python
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 import asyncio
 
 @dataclass(frozen=True)  # State is immutable
@@ -374,7 +378,9 @@ class State:
 ### 2. Deep Immutability
 
 ```python
-from typing import Mapping
+from dataclasses import dataclass
+from typing import Mapping, Any
+import types
 
 # Good - truly immutable
 @dataclass(frozen=True)

@@ -1,4 +1,4 @@
-# 11 Visualization
+# [11 Visualization](../README.md#getting-started)
 
 This example demonstrates how `justpipe` can automatically generate Mermaid diagrams of your pipelines.
 
@@ -75,3 +75,8 @@ graph TD
     classDef isolated fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5,color:#880e4f;
     classDef startEnd fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#1b5e20;
 ```
+
+## See Also
+
+- **[examples/README.md](../README.md#visual-guide)**: Full guide to the colors and shapes used in these graphs.
+- **[06 Sub-pipelines](../06_subpipelines)**: Visualizing nested flows.

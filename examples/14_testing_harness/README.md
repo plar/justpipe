@@ -1,4 +1,4 @@
-# Pipeline Testing Harness
+# [14 Testing Harness](../README.md#getting-started)
 
 This example demonstrates how to use `TestPipe` to write clean, isolated unit tests for your pipelines.
 
@@ -29,3 +29,8 @@ with TestPipe(pipe) as tester:
     mock_step.assert_called_once()
     assert result.final_state.is_done
 ```
+
+## See Also
+
+- **[12 Observability](../12_observability)**: How  captures events under the hood.
+- **[01 Quick Start](../01_quick_start)**: The pipeline we tested here.
