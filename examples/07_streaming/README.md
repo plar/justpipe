@@ -1,4 +1,4 @@
-# 07 Streaming (Chatbot)
+# [07 Streaming](../README.md#ai--streaming)
 
 This example demonstrates how to implement a streaming step that yields partial results (tokens) in real-time. This is essential for building responsive LLM applications.
 
@@ -74,3 +74,8 @@ graph TD
     classDef isolated fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5,color:#880e4f;
     classDef startEnd fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#1b5e20;
 ```
+
+## See Also
+
+- **[01 Quick Start](../01_quick_start)**: Basic streaming example.
+- **[12 Observability](../12_observability)**: How tokens are logged and tracked.

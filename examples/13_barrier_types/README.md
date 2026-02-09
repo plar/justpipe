@@ -1,4 +1,4 @@
-# Barrier Types (Fan-In Control)
+# [13 Barrier Types](../README.md#orchestration-patterns)
 
 This example demonstrates how to control step execution behavior when multiple dependencies (parents) are involved.
 
@@ -69,3 +69,8 @@ graph TD
     classDef isolated fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5,color:#880e4f;
     classDef startEnd fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#1b5e20;
 ```
+
+## See Also
+
+- **[02 Parallel DAG](../02_parallel_dag)**: The default 'ALL' barrier behavior.
+- **[03 Dynamic Map](../03_dynamic_map)**: Implicit barriers in mapping.
