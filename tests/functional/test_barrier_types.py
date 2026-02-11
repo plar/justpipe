@@ -9,7 +9,7 @@ from justpipe import Pipe, BarrierType
 @pytest.mark.asyncio
 async def test_barrier_any_executes_on_first_parent() -> None:
     """Test that a step with BarrierType.ANY executes as soon as the first parent finishes."""
-    pipe: Pipe[dict[str, Any], None] = Pipe()
+    pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
     release_slow_parent = asyncio.Event()
 
     @pipe.step(to="combine")
@@ -45,7 +45,7 @@ async def test_barrier_any_executes_on_first_parent() -> None:
 @pytest.mark.asyncio
 async def test_barrier_any_ignores_subsequent_parents() -> None:
     """Test that a step with BarrierType.ANY does not re-execute when subsequent parents finish."""
-    pipe: Pipe[dict[str, Any], None] = Pipe()
+    pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
     release_waiting_parents = asyncio.Event()
 
     @pipe.step(to="combine")
@@ -78,7 +78,7 @@ async def test_barrier_any_ignores_subsequent_parents() -> None:
 @pytest.mark.asyncio
 async def test_barrier_all_waits_for_everyone() -> None:
     """Test that the default BarrierType.ALL waits for all parents."""
-    pipe: Pipe[dict[str, Any], None] = Pipe()
+    pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
     release_second_parent = asyncio.Event()
 
     @pipe.step(to="combine")
@@ -108,7 +108,7 @@ async def test_barrier_all_waits_for_everyone() -> None:
 @pytest.mark.asyncio
 async def test_barrier_any_with_map() -> None:
     """Test that @pipe.map respects BarrierType.ANY."""
-    pipe: Pipe[dict[str, Any], None] = Pipe()
+    pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
     release_slow_parent = asyncio.Event()
 
     @pipe.step(to="process_items")
@@ -141,7 +141,7 @@ async def test_barrier_any_with_map() -> None:
 @pytest.mark.asyncio
 async def test_barrier_any_with_switch() -> None:
     """Test that @pipe.switch respects BarrierType.ANY."""
-    pipe: Pipe[dict[str, Any], None] = Pipe()
+    pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
     release_slow_parent = asyncio.Event()
 
     @pipe.step(to="decide")
@@ -171,14 +171,14 @@ async def test_barrier_any_with_switch() -> None:
 @pytest.mark.asyncio
 async def test_barrier_any_with_sub() -> None:
     """Test that @pipe.sub respects BarrierType.ANY."""
-    sub_pipe: Pipe[dict[str, Any], None] = Pipe()
+    sub_pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
     release_slow_parent = asyncio.Event()
 
     @sub_pipe.step()
     async def sub_step(state: dict[str, Any]) -> None:
         state["sub_done"] = True
 
-    pipe: Pipe[dict[str, Any], None] = Pipe()
+    pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
 
     @pipe.step(to="run_sub")
     async def p1(state: dict[str, Any]) -> None:
@@ -209,7 +209,7 @@ async def test_barrier_any_resilience() -> None:
     """
     from justpipe import Skip
 
-    pipe: Pipe[dict[str, Any], None] = Pipe()
+    pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
 
     @pipe.step(to="combine")
     async def p1(state: dict[str, Any]) -> Skip:
@@ -235,7 +235,7 @@ async def test_barrier_any_resilience() -> None:
 @pytest.mark.asyncio
 async def test_mixed_barriers() -> None:
     """Test chaining an ANY barrier step into an ALL barrier step."""
-    pipe: Pipe[dict[str, Any], None] = Pipe()
+    pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
     release_slow_branch = asyncio.Event()
     release_branch_d = asyncio.Event()
 

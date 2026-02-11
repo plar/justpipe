@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import (
     Any,
     Generic,
@@ -31,6 +32,23 @@ StateT = TypeVar("StateT")
 ContextT = TypeVar("ContextT")
 
 
+def _resolve_debug_flag(debug: bool | None) -> bool:
+    """Resolve debug flag from explicit value or JUSTPIPE_DEBUG env var."""
+    if debug is not None:
+        return debug
+
+    raw = os.getenv("JUSTPIPE_DEBUG")
+    if raw is None:
+        return False
+
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off", ""}:
+        return False
+    return False
+
+
 class Pipe(Generic[StateT, ContextT]):
     def __init__(
         self,
@@ -38,10 +56,12 @@ class Pipe(Generic[StateT, ContextT]):
         context_type: type[ContextT] | None = None,
         *,
         name: str = "Pipe",
+        strict: bool = True,
+        allow_multi_root: bool = False,
         middleware: list[Middleware] | None = None,
         queue_size: int = 1000,
         max_map_items: int | None = None,
-        debug: bool = False,
+        debug: bool | None = None,
         cancellation_token: CancellationToken | None = None,
         failure_classification: FailureClassificationConfig | None = None,
     ):
@@ -51,16 +71,21 @@ class Pipe(Generic[StateT, ContextT]):
             state_type: The type of state (defaults to type(None))
             context_type: The type of context (defaults to type(None))
             name: Pipeline name
+            strict: Enable strict graph validation on run (default: True)
+            allow_multi_root: Allow multiple roots when run() is called
+                without start=. In strict mode this must be True to opt in.
             middleware: list of middleware to apply
             queue_size: Max events in queue (backpressure)
             max_map_items: Max items to materialize from async generators in @pipe.map
-            debug: Enable debug logging
+            debug: Enable debug logging. If None, uses JUSTPIPE_DEBUG env var.
             cancellation_token: Token for cooperative cancellation
             failure_classification: Optional config for terminal failure source
                 classification. Supports a source classifier callback and extra
                 external dependency module prefixes.
         """
         self.name = name
+        self.strict = strict
+        self.allow_multi_root = allow_multi_root
         self.queue_size = queue_size
         self.cancellation_token = cancellation_token or CancellationToken()
         self._failure_classification = (
@@ -78,8 +103,8 @@ class Pipe(Generic[StateT, ContextT]):
             max_map_items=max_map_items,
         )
 
-        # Add debug observer if requested
-        if debug:
+        # Add debug observer if requested (explicit flag or JUSTPIPE_DEBUG env var)
+        if _resolve_debug_flag(debug):
             from justpipe.observability.logger import EventLogger
 
             self.add_observer(
@@ -251,7 +276,12 @@ class Pipe(Generic[StateT, ContextT]):
         """Read-only view of the execution graph."""
         return dict(self.registry.topology)
 
-    def validate(self) -> None:
+    def validate(
+        self,
+        start: str | Callable[..., Any] | None = None,
+        strict: bool | None = None,
+        allow_multi_root: bool | None = None,
+    ) -> None:
         """
         Validate the pipeline graph integrity.
         Raises:
@@ -259,11 +289,19 @@ class Pipe(Generic[StateT, ContextT]):
         """
         from justpipe._internal.graph.graph_validator import _GraphValidator
 
+        effective_strict = self.strict if strict is None else strict
+        effective_allow_multi_root = (
+            self.allow_multi_root if allow_multi_root is None else allow_multi_root
+        )
         graph = _GraphValidator(
             self.registry.steps,
             self.registry.topology,
         )
-        graph.validate()
+        graph.validate(
+            start=start,
+            strict=effective_strict,
+            allow_multi_root=effective_allow_multi_root,
+        )
 
     async def run(
         self,
@@ -273,7 +311,7 @@ class Pipe(Generic[StateT, ContextT]):
         queue_size: int | None = None,
         timeout: float | None = None,
     ) -> AsyncGenerator[Event, None]:
-        self.validate()
+        self.validate(start=start)
         self.registry.finalize()
         self.registry.freeze()
 

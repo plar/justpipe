@@ -15,7 +15,7 @@ from justpipe import Pipe, EventType
     ids=["terminal_join", "join_to_end"],
 )
 async def test_barrier_timeout_success_paths(with_downstream: bool) -> None:
-    pipe: Pipe[dict[str, Any], None] = Pipe()
+    pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
     # Deterministic gating avoids scheduler-dependent sleep timing.
     release_workers = asyncio.Event()
 
@@ -62,7 +62,7 @@ async def test_barrier_timeout_success_paths(with_downstream: bool) -> None:
 
 @pytest.mark.asyncio
 async def test_barrier_timeout_failure() -> None:
-    pipe: Pipe[dict[str, Any], None] = Pipe()
+    pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
     # Keep one worker blocked until the join step times out.
     worker_started = asyncio.Event()
     release_worker = asyncio.Event()
@@ -97,7 +97,7 @@ async def test_barrier_timeout_failure() -> None:
 
 @pytest.mark.asyncio
 async def test_barrier_timeout_does_not_skip_other_targets() -> None:
-    pipe: Pipe[dict[str, Any], None] = Pipe()
+    pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
     # Block only the barrier path; sibling targets should still execute.
     release_worker = asyncio.Event()
 

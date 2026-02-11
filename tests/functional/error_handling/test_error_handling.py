@@ -131,7 +131,7 @@ async def test_step_redirect_via_next() -> None:
         state["recovered"] = True
 
     state: dict[str, Any] = {}
-    async for ev in pipe.run(state):
+    async for ev in pipe.run(state, start="failing_step"):
         pass
 
     assert state.get("recovered") is True

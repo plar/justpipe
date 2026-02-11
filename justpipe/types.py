@@ -12,6 +12,12 @@ class DefinitionError(Exception):
     pass
 
 
+class PipelineValidationWarning(UserWarning):
+    """Raised for non-fatal pipeline validation diagnostics."""
+
+    pass
+
+
 class EventType(Enum):
     # Pipeline lifecycle
     START = "start"

@@ -1,6 +1,6 @@
 import pytest
 from typing import Any
-from justpipe import DefinitionError, Pipe
+from justpipe import DefinitionError, Pipe, PipelineValidationWarning
 
 
 def test_steps_empty_pipe() -> None:
@@ -212,3 +212,97 @@ async def test_run_validation_fails_no_entry_cycle() -> None:
     with pytest.raises(DefinitionError, match="no entry points found"):
         async for _ in pipe.run({}):
             pass
+
+
+def test_validate_start_scope_missing_all_barrier_parent_strict() -> None:
+    pipe: Pipe[dict[str, Any], None] = Pipe(strict=True)
+
+    @pipe.step("sentry", to="judge")
+    async def sentry(state: dict[str, Any]) -> None:
+        state.setdefault("trace", []).append("sentry")
+
+    @pipe.step("judge", to="scorer")
+    async def judge(state: dict[str, Any]) -> None:
+        state.setdefault("trace", []).append("judge")
+
+    @pipe.step("writer", to="scorer")
+    async def writer(state: dict[str, Any]) -> None:
+        state.setdefault("trace", []).append("writer")
+
+    @pipe.step("scorer")
+    async def scorer(state: dict[str, Any]) -> None:
+        state.setdefault("trace", []).append("scorer")
+
+    with pytest.raises(DefinitionError, match="requires ALL parents"):
+        pipe.validate(start="sentry")
+
+
+def test_validate_start_scope_missing_all_barrier_parent_non_strict_warns() -> None:
+    pipe: Pipe[dict[str, Any], None] = Pipe(strict=False)
+
+    @pipe.step("sentry", to="judge")
+    async def sentry(state: dict[str, Any]) -> None:
+        state.setdefault("trace", []).append("sentry")
+
+    @pipe.step("judge", to="scorer")
+    async def judge(state: dict[str, Any]) -> None:
+        state.setdefault("trace", []).append("judge")
+
+    @pipe.step("writer", to="scorer")
+    async def writer(state: dict[str, Any]) -> None:
+        state.setdefault("trace", []).append("writer")
+
+    @pipe.step("scorer")
+    async def scorer(state: dict[str, Any]) -> None:
+        state.setdefault("trace", []).append("scorer")
+
+    with pytest.warns(
+        PipelineValidationWarning,
+        match=r"cannot reach parent\(s\): writer",
+    ):
+        pipe.validate(start="sentry")
+
+
+def test_validate_with_unknown_start_step() -> None:
+    pipe: Pipe[Any, Any] = Pipe(strict=True)
+
+    @pipe.step("known")
+    async def known() -> None:
+        pass
+
+    with pytest.raises(
+        DefinitionError, match="run\\(start=\\.\\.\\.\\) references unknown step"
+    ):
+        pipe.validate(start="missing")
+
+
+def test_validate_strict_multi_root_requires_opt_in() -> None:
+    pipe: Pipe[Any, Any] = Pipe(strict=True, allow_multi_root=False)
+
+    @pipe.step("a")
+    async def a() -> None:
+        pass
+
+    @pipe.step("b")
+    async def b() -> None:
+        pass
+
+    with pytest.raises(
+        DefinitionError,
+        match="Multiple root steps detected: a, b",
+    ):
+        pipe.validate()
+
+
+def test_validate_strict_multi_root_with_opt_in_allows() -> None:
+    pipe: Pipe[Any, Any] = Pipe(strict=True, allow_multi_root=True)
+
+    @pipe.step("a")
+    async def a() -> None:
+        pass
+
+    @pipe.step("b")
+    async def b() -> None:
+        pass
+
+    pipe.validate()

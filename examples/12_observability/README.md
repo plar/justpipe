@@ -278,17 +278,20 @@ Observers are optional and have zero overhead when not used.
 graph TD
     Start(["▶ Start"])
 
-    n0["Analyze Sentiment"]
-    n1["Count Words"]
+    subgraph parallel_n2[Parallel]
+        direction LR
+        n0["Analyze Sentiment"]
+        n1["Count Words"]
+    end
+
     n2["Parse Input"]
     End(["■ End"])
     n0 --> End
     n1 --> End
-    n2 --> End
 
-    Start --> n0
-    Start --> n1
     Start --> n2
+    n2 --> n0
+    n2 --> n1
     class n0,n1,n2 step;
     class Start,End startEnd;
 

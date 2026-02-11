@@ -53,7 +53,7 @@ timeline = TimelineVisualizer()
 pipe.add_observer(timeline)
 
 
-@pipe.step()
+@pipe.step(to=["count_words", "analyze_sentiment"])
 async def parse_input(state: DocumentState):
     """Parse and normalize the input text."""
     await asyncio.sleep(0.01)  # Simulate work
@@ -144,6 +144,7 @@ async def main():
 
     # Save visualization
     from examples.utils import save_graph
+
     save_graph(pipe, Path(__file__).parent / "pipeline.mmd")
 
     # Show CLI commands

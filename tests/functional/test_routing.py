@@ -19,7 +19,7 @@ async def test_dynamic_routing(state: Any) -> None:
     async def target() -> None:
         executed.append(True)
 
-    async for _ in pipe.run(state):
+    async for _ in pipe.run(state, start="start"):
         pass
     assert executed
 
@@ -66,7 +66,7 @@ async def test_switch_callable_routes() -> None:
         return True
 
     # We just ensure it runs without error and routes correctly (implied by no error)
-    async for _ in pipe.run(None):
+    async for _ in pipe.run(None, start="switch"):
         pass
 
 
@@ -236,7 +236,7 @@ async def test_switch_route_validation_dynamic_not_validated() -> None:
         pass
 
     # Should not raise at finalize time (dynamic routes)
-    events = [e async for e in pipe.run(None)]
+    events = [e async for e in pipe.run(None, start="switch")]
     assert any(e.type == EventType.FINISH for e in events)
 
 
