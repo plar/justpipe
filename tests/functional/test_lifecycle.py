@@ -286,7 +286,7 @@ async def test_barrier_cleanup_when_startup_fails() -> None:
     This tests the fix for resource cleanup - barrier cleanup should only
     run if execution actually started, to avoid errors.
     """
-    pipe: Pipe[Any, None] = Pipe()
+    pipe: Pipe[Any, None] = Pipe(allow_multi_root=True)
 
     @pipe.on_startup
     async def failing_startup() -> None:

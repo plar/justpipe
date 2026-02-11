@@ -1,11 +1,18 @@
 from __future__ import annotations
 
-from typing import NoReturn
+import warnings
+from collections import defaultdict
+from collections.abc import Callable
+from typing import Any, NoReturn
 
-from justpipe.types import DefinitionError
-from justpipe._internal.definition.steps import _MapStep, _SwitchStep, _BaseStep
+from justpipe.types import (
+    BarrierType,
+    DefinitionError,
+    PipelineValidationWarning,
+)
+from justpipe._internal.definition.steps import _BaseStep, _MapStep, _SwitchStep
 from justpipe._internal.graph.dependency_graph import compute_roots
-from justpipe._internal.shared.utils import suggest_similar
+from justpipe._internal.shared.utils import _resolve_name, suggest_similar
 
 
 class _GraphValidator:
@@ -39,7 +46,78 @@ class _GraphValidator:
             error_msg += define_hint
         raise DefinitionError(error_msg)
 
-    def validate(self) -> None:
+    def _raise_or_warn(self, message: str, *, strict: bool) -> None:
+        if strict:
+            raise DefinitionError(message)
+        warnings.warn(message, PipelineValidationWarning, stacklevel=3)
+
+    def _targets_for(self, node: str) -> list[str]:
+        targets = self._topology.get(node, []).copy()
+        step = self._steps.get(node)
+        if step:
+            targets.extend(step.get_targets())
+        return targets
+
+    def _walk_reachable(
+        self,
+        roots: set[str],
+        edges: dict[str, list[str]],
+    ) -> set[str]:
+        reachable: set[str] = set()
+        stack: list[str] = list(roots)
+        while stack:
+            node = stack.pop()
+            if node in reachable:
+                continue
+            reachable.add(node)
+            for target in edges.get(node, []):
+                if target not in reachable:
+                    stack.append(target)
+        return reachable
+
+    def _validate_start_scope_all_barriers(
+        self,
+        *,
+        reachable_nodes: set[str],
+        start_name: str,
+        strict: bool,
+    ) -> None:
+        parents_map: dict[str, set[str]] = defaultdict(set)
+        for parent, children in self._topology.items():
+            for child in children:
+                parents_map[child].add(parent)
+
+        for node in sorted(reachable_nodes):
+            parents = parents_map.get(node, set())
+            if len(parents) <= 1:
+                continue
+
+            step = self._steps.get(node)
+            barrier_type = step.barrier_type if step else BarrierType.ALL
+            if barrier_type == BarrierType.ANY:
+                continue
+
+            missing_parents = parents - reachable_nodes
+            if not missing_parents:
+                continue
+
+            all_parents = ", ".join(sorted(parents))
+            missing = ", ".join(sorted(missing_parents))
+            self._raise_or_warn(
+                (
+                    f"Step '{node}' requires ALL parents [{all_parents}], but "
+                    f"run(start='{start_name}') cannot reach parent(s): {missing}. "
+                    "This step will never execute in this run."
+                ),
+                strict=strict,
+            )
+
+    def validate(
+        self,
+        start: str | Callable[..., Any] | None = None,
+        strict: bool = True,
+        allow_multi_root: bool = False,
+    ) -> None:
         """
         Validate the pipeline graph integrity.
         Raises:
@@ -125,12 +203,47 @@ class _GraphValidator:
 
         # 3. Detect roots (entry points)
         roots = compute_roots(self._steps, self._topology)
-        if not roots and all_step_names:
+        if not roots and all_step_names and start is None:
             raise DefinitionError(
                 "Circular dependency detected or no entry points found in the pipeline. "
                 "Every step has a parent, creating a cycle. "
                 "Remove one 'to=' edge to create an entry point, or specify start= in run()."
             )
+
+        if start is not None:
+            start_name = _resolve_name(start)
+            if start_name not in all_step_names:
+                self._raise_unknown_step(
+                    prefix="run(start=...) references unknown step '",
+                    unknown=start_name,
+                    all_step_names=all_step_names,
+                    fallback_hint=(
+                        "Check the provided start step name or pass a registered callable."
+                    ),
+                )
+            traversal_roots = {start_name}
+        else:
+            start_name = None
+            traversal_roots = roots
+
+        if start is None and len(roots) > 1:
+            sorted_roots = ", ".join(sorted(roots))
+            if strict and not allow_multi_root:
+                raise DefinitionError(
+                    f"Multiple root steps detected: {sorted_roots}. "
+                    "run() without an explicit start schedules all roots concurrently, "
+                    "so root execution order is non-deterministic. "
+                    "Pass start=... or set allow_multi_root=True to opt in."
+                )
+            if not strict:
+                self._raise_or_warn(
+                    (
+                        f"Multiple root steps detected: {sorted_roots}. "
+                        "run() without an explicit start schedules all roots concurrently, "
+                        "so root execution order is non-deterministic."
+                    ),
+                    strict=False,
+                )
 
         # 4. Cycle detection and reachability
         visited: set[str] = set()
@@ -142,12 +255,7 @@ class _GraphValidator:
             path_stack.append(node)
             path_members.add(node)
 
-            targets = self._topology.get(node, []).copy()
-            step = self._steps.get(node)
-            if step:
-                targets.extend(step.get_targets())
-
-            for target in targets:
+            for target in self._targets_for(node):
                 if target in path_members:
                     cycle_start = path_stack.index(target)
                     cycle_nodes = path_stack[cycle_start:] + [target]
@@ -162,14 +270,23 @@ class _GraphValidator:
             path_stack.pop()
             path_members.remove(node)
 
-        for root in roots:
+        for root in traversal_roots:
             check_cycle(root)
 
-        unvisited = all_step_names - visited
-        if unvisited:
-            unreachable_list = ", ".join(sorted(unvisited))
-            raise DefinitionError(
-                f"Unreachable steps detected: {unreachable_list}. "
-                f"These steps are not connected to any entry point. "
-                f"Add 'to=' parameters to connect them or remove them if unused."
+        if start is None:
+            unvisited = all_step_names - visited
+            if unvisited:
+                unreachable_list = ", ".join(sorted(unvisited))
+                raise DefinitionError(
+                    f"Unreachable steps detected: {unreachable_list}. "
+                    f"These steps are not connected to any entry point. "
+                    f"Add 'to=' parameters to connect them or remove them if unused."
+                )
+
+        if start_name is not None:
+            reachable_from_start = self._walk_reachable(traversal_roots, self._topology)
+            self._validate_start_scope_all_barriers(
+                reachable_nodes=reachable_from_start,
+                start_name=start_name,
+                strict=strict,
             )

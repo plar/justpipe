@@ -19,7 +19,7 @@ def storage() -> InMemoryStorage:
 
 @pytest.fixture
 async def sample_pipeline() -> Pipe[Any, Any]:
-    pipe: Pipe[Any, Any] = Pipe(name="test_pipeline")
+    pipe: Pipe[Any, Any] = Pipe(name="test_pipeline", allow_multi_root=True)
 
     @pipe.step()
     async def step1(state: Any) -> None:

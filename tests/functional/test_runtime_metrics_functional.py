@@ -30,7 +30,7 @@ async def test_finish_metrics_basic() -> None:
 
 @pytest.mark.asyncio
 async def test_finish_metrics_map_workers() -> None:
-    pipe: Pipe[dict[str, int], dict[str, int]] = Pipe(dict, dict)
+    pipe: Pipe[dict[str, int], dict[str, int]] = Pipe(dict, dict, allow_multi_root=True)
 
     @pipe.step(to="fan_out")
     async def start(state: dict[str, int]) -> None:

@@ -8,7 +8,7 @@ from justpipe import Pipe, EventType
 async def test_map_async_gen_limit_default() -> None:
     pipe: Pipe[dict[str, Any], Any] = Pipe(dict)
 
-    @pipe.step()
+    @pipe.step(to="source")
     async def start(state: dict[str, Any]) -> None:
         state["items"] = []
 
