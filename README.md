@@ -23,6 +23,13 @@ Building production AI agents often leads to a mess of nested `asyncio` loops, m
 ## Installation
 
 ```bash
+# As a CLI tool (recommended)
+pipx install justpipe
+
+# Or with uv
+uv tool install justpipe
+
+# Or as a library dependency
 pip install justpipe
 
 # With retry support (via tenacity)
