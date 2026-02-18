@@ -425,9 +425,9 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                 failed_step=resolved.failed_step,
                 errors=list(resolved.errors),
                 metrics=self._metrics.snapshot(),
-                run_meta=run_meta or None,
             ),
             node_kind=NodeKind.SYSTEM,
+            meta=run_meta or None,
         )
         yield await self._publish(finish_event)
 

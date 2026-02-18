@@ -75,6 +75,30 @@ class TestScopedMeta:
             "counters": {"cnt": 3},
         }
 
+    def test_set_framework(self) -> None:
+        m = _ScopedMeta()
+        m._set_framework(duration_s=0.45, attempt=1, status="success")
+        snap = m._snapshot()
+        assert snap == {
+            "framework": {"duration_s": 0.45, "attempt": 1, "status": "success"},
+        }
+
+    def test_set_framework_merged_with_user_data(self) -> None:
+        m = _ScopedMeta()
+        m.set("model", "gpt-4")
+        m._set_framework(duration_s=1.2, attempt=2, status="error")
+        snap = m._snapshot()
+        assert snap["data"]["model"] == "gpt-4"
+        assert snap["framework"]["duration_s"] == 1.2
+        assert snap["framework"]["attempt"] == 2
+        assert snap["framework"]["status"] == "error"
+
+    def test_framework_empty_not_in_snapshot(self) -> None:
+        m = _ScopedMeta()
+        m.set("key", "val")
+        snap = m._snapshot()
+        assert "framework" not in snap
+
     def test_snapshot_tags_sorted(self) -> None:
         m = _ScopedMeta()
         m.add_tag("z_tag")

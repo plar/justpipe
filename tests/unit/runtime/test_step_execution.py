@@ -219,14 +219,21 @@ async def test_execute_step_captures_step_meta() -> None:
     await coordinator.execute_step("step_a", "owner_a")
 
     assert len(port.completed) == 1
-    assert port.completed[0].step_meta is not None
-    assert port.completed[0].step_meta["data"]["model"] == "gpt-4"
-    assert port.completed[0].step_meta["metrics"]["latency"] == [1.5]
+    meta = port.completed[0].step_meta
+    assert meta is not None
+    assert meta["data"]["model"] == "gpt-4"
+    assert meta["metrics"]["latency"] == [1.5]
+    # Framework timing is always present
+    assert "framework" in meta
+    assert meta["framework"]["status"] == "success"
+    assert meta["framework"]["attempt"] == 1
+    assert isinstance(meta["framework"]["duration_s"], float)
+    assert meta["framework"]["duration_s"] >= 0
 
 
 @pytest.mark.asyncio
-async def test_execute_step_no_meta_written_passes_none() -> None:
-    """When no step meta is written, step_meta is None."""
+async def test_execute_step_no_user_meta_has_framework_only() -> None:
+    """When no user step meta is written, step_meta still contains framework timing."""
     step_errors = _StepErrorStore()
     port = _FakeCoordinatorPort(state=None, context=None)
     coordinator = _StepExecutionCoordinator[Any, Any](
@@ -238,7 +245,15 @@ async def test_execute_step_no_meta_written_passes_none() -> None:
     await coordinator.execute_step("step_a", "owner_a")
 
     assert len(port.completed) == 1
-    assert port.completed[0].step_meta is None
+    meta = port.completed[0].step_meta
+    assert meta is not None
+    assert "framework" in meta
+    assert meta["framework"]["status"] == "success"
+    assert meta["framework"]["attempt"] == 1
+    assert isinstance(meta["framework"]["duration_s"], float)
+    # No user data keys
+    assert "data" not in meta
+    assert "tags" not in meta
 
 
 @pytest.mark.asyncio
@@ -328,6 +343,10 @@ async def test_execute_step_failure_delegates_to_failure_handler() -> None:
     assert port.failures[0].state == {"s": 1}
     assert port.failures[0].context == {"c": 1}
     assert port.failures[0].invocation is not None
+    # Framework timing present even without user meta
+    meta = port.failures[0].step_meta
+    assert meta is not None
+    assert meta["framework"]["status"] == "error"
 
 
 @pytest.mark.asyncio
@@ -350,6 +369,11 @@ async def test_execute_step_failure_carries_partial_step_meta() -> None:
     await coordinator.execute_step("step_a", "owner_a")
 
     assert len(port.failures) == 1
-    assert port.failures[0].step_meta is not None
-    assert port.failures[0].step_meta["data"]["partial"] is True
-    assert port.failures[0].step_meta["counters"]["processed"] == 3
+    meta = port.failures[0].step_meta
+    assert meta is not None
+    assert meta["data"]["partial"] is True
+    assert meta["counters"]["processed"] == 3
+    # Framework timing on error path
+    assert meta["framework"]["status"] == "error"
+    assert meta["framework"]["attempt"] == 1
+    assert isinstance(meta["framework"]["duration_s"], float)

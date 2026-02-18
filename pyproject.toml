@@ -35,6 +35,10 @@ retry = [
     "tenacity>=9.1.2",
 ]
 observability = []
+dashboard = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.20",
+]
 examples = [
     "openai>=1.0.0",
     "google-genai>=0.3.0",
@@ -47,6 +51,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.version]
 source = "vcs"
+
+[tool.hatch.build]
+artifacts = ["justpipe/dashboard/static/**"]
+
+[tool.hatch.build.hooks.custom]
 
 [dependency-groups]
 dev = [

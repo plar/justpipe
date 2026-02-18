@@ -141,6 +141,16 @@ def pipelines_command_cli() -> None:
     pipelines_command(get_registry())
 
 
+@cli.command("dashboard")
+@click.option("--port", "-p", default=8741, help="Port to serve on")
+@click.option("--no-open", is_flag=True, help="Don't auto-open browser")
+def dashboard_command_cli(port: Any, no_open: Any) -> None:
+    """Open the web dashboard."""
+    from justpipe.cli.commands.dashboard import dashboard_command
+
+    dashboard_command(get_registry(), port, no_open)
+
+
 def main() -> None:
     """Main entry point."""
     cli()

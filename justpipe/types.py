@@ -355,7 +355,6 @@ class PipelineEndData:
     failed_step: str | None = None
     errors: list[FailureRecord] = field(default_factory=list)
     metrics: RuntimeMetrics | None = None
-    run_meta: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

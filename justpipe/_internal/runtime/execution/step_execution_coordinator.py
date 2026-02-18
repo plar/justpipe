@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Generic, TypeVar
 
 from justpipe._internal.runtime.execution.step_invoker import _StepInvoker
@@ -104,6 +105,7 @@ class _StepExecutionCoordinator(Generic[StateT, ContextT]):
             )
             step_meta_obj = _ScopedMeta()
             token = _current_step_meta_var.set(step_meta_obj)
+            t0 = time.monotonic()
             try:
                 result = await self._invoker.execute(
                     name,
@@ -113,7 +115,13 @@ class _StepExecutionCoordinator(Generic[StateT, ContextT]):
                     payload,
                 )
             finally:
+                elapsed = time.monotonic() - t0
                 _current_step_meta_var.reset(token)
+            step_meta_obj._set_framework(
+                duration_s=round(elapsed, 6),
+                attempt=invocation.attempt,
+                status="success",
+            )
             snapshot = step_meta_obj._snapshot() or None
             await self._orch.complete_step(
                 name,
@@ -126,6 +134,11 @@ class _StepExecutionCoordinator(Generic[StateT, ContextT]):
                 step_meta=snapshot,
             )
         except Exception as error:
+            step_meta_obj._set_framework(
+                duration_s=round(elapsed, 6),
+                attempt=invocation.attempt,
+                status="error",
+            )
             snapshot = step_meta_obj._snapshot() or None
             await self._orch.handle_execution_failure(
                 name,

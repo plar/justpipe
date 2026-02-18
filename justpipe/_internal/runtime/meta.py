@@ -18,13 +18,14 @@ _current_step_meta_var: ContextVar[_ScopedMeta | None] = ContextVar(
 class _ScopedMeta:
     """Shared implementation for step and run scopes."""
 
-    __slots__ = ("_data", "_tags", "_metrics", "_counters")
+    __slots__ = ("_data", "_tags", "_metrics", "_counters", "_framework")
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
         self._tags: set[str] = set()
         self._metrics: dict[str, list[float]] = {}
         self._counters: dict[str, float] = {}
+        self._framework: dict[str, Any] = {}
 
     def set(self, key: str, value: Any) -> None:
         self._data[key] = value
@@ -41,6 +42,9 @@ class _ScopedMeta:
     def increment(self, name: str, amount: float = 1) -> None:
         self._counters[name] = self._counters.get(name, 0) + amount
 
+    def _set_framework(self, **kwargs: Any) -> None:
+        self._framework.update(kwargs)
+
     def _snapshot(self) -> dict[str, Any]:
         snap: dict[str, Any] = {}
         if self._data:
@@ -51,6 +55,8 @@ class _ScopedMeta:
             snap["metrics"] = {k: list(v) for k, v in self._metrics.items()}
         if self._counters:
             snap["counters"] = dict(self._counters)
+        if self._framework:
+            snap["framework"] = dict(self._framework)
         return snap
 
 
