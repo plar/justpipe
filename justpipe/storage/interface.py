@@ -8,6 +8,9 @@ from typing import Protocol
 
 from justpipe.types import EventType, PipelineTerminalStatus
 
+MAX_QUERY_LIMIT = 10_000
+"""Upper bound for 'fetch all' queries where exact count is not needed."""
+
 
 @dataclass(frozen=True)
 class RunRecord:

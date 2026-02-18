@@ -6,6 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
+from justpipe._internal.shared.utils import format_duration
 from justpipe.observability import Observer, ObserverMeta
 from justpipe.observability._worker_cleanup import remove_worker_entries
 from justpipe.types import Event, EventType
@@ -198,9 +199,7 @@ class TimelineVisualizer(Observer):
 
     def _format_duration(self, seconds: float) -> str:
         """Format duration for display."""
-        if seconds < 1:
-            return f"{seconds * 1000:.0f}ms"
-        return f"{seconds:.2f}s"
+        return format_duration(seconds)
 
     def render_ascii(self, max_steps: int = 20) -> str:
         """Generate ASCII timeline.

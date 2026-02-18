@@ -233,15 +233,16 @@ class TestAutoPersistenceObserver:
 
         await obs.on_pipeline_start(None, None, meta)
 
-        finish_event = _make_event(
-            event_type=EventType.FINISH,
+        # run_meta is now on Event.meta (not payload.run_meta)
+        finish_event = Event(
+            type=EventType.FINISH,
             stage="system",
             node_kind=NodeKind.SYSTEM,
             payload={
                 "status": "success",
                 "duration_s": 1.0,
-                "run_meta": {"run": {"tags": ["prod"]}},
             },
+            meta={"data": {"env": "prod"}, "tags": ["prod"]},
         )
         await obs.on_event(None, None, meta, finish_event)
         await obs.on_pipeline_end(None, None, meta, 1.0)
@@ -250,7 +251,8 @@ class TestAutoPersistenceObserver:
         assert run is not None
         assert run.run_meta is not None
         parsed = json.loads(run.run_meta)
-        assert parsed["run"]["tags"] == ["prod"]
+        assert parsed["tags"] == ["prod"]
+        assert parsed["data"]["env"] == "prod"
 
     @pytest.mark.asyncio
     async def test_clears_buffer_after_flush(self) -> None:
@@ -274,14 +276,27 @@ class TestAutoPersistenceObserver:
         events = backend.get_events("run-2")
         assert len(events) == 1
 
+    @pytest.mark.parametrize(
+        ("error_class", "error_msg", "flush_via"),
+        [
+            pytest.param(OSError, "disk full", "end", id="os-error-end"),
+            pytest.param(RuntimeError, "connection lost", "end", id="runtime-error-end"),
+            pytest.param(PermissionError, "read-only fs", "error", id="permission-error-error"),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_persistence_failure_does_not_raise(self) -> None:
-        """Pipeline execution NEVER fails due to persistence errors."""
-        broken_backend = MagicMock()
-        broken_backend.save_run.side_effect = OSError("disk full")
+    async def test_backend_save_error_suppressed(
+        self,
+        error_class: type[Exception],
+        error_msg: str,
+        flush_via: str,
+    ) -> None:
+        """Backend raising on save_run is suppressed — buffer is always cleaned up."""
+        broken = MagicMock()
+        broken.save_run.side_effect = error_class(error_msg)
 
         obs = _AutoPersistenceObserver(
-            backend=broken_backend,
+            backend=broken,
             pipeline_hash="abc123",
             describe_snapshot={},
         )
@@ -289,8 +304,13 @@ class TestAutoPersistenceObserver:
 
         await obs.on_pipeline_start(None, None, meta)
         await obs.on_event(None, None, meta, _make_event())
-        # Should not raise
-        await obs.on_pipeline_end(None, None, meta, 1.0)
+        if flush_via == "end":
+            await obs.on_pipeline_end(None, None, meta, 1.0)
+        else:
+            await obs.on_pipeline_error(None, None, meta, ValueError("step boom"))
+
+        assert obs._events == []
+        assert obs._run_id is None
 
     @pytest.mark.asyncio
     async def test_no_flush_without_start(self) -> None:
@@ -317,50 +337,6 @@ class TestAutoPersistenceObserver:
         assert isinstance(run.end_time, datetime)
         assert isinstance(run.duration, timedelta)
         assert run.duration.total_seconds() >= 0
-
-    @pytest.mark.asyncio
-    async def test_backend_save_error_suppressed_on_end(self) -> None:
-        """Backend raising on save_run is suppressed during on_pipeline_end."""
-        broken = MagicMock()
-        broken.save_run.side_effect = RuntimeError("connection lost")
-
-        obs = _AutoPersistenceObserver(
-            backend=broken,
-            pipeline_hash="abc123",
-            describe_snapshot={},
-        )
-        meta = _make_meta()
-
-        await obs.on_pipeline_start(None, None, meta)
-        await obs.on_event(None, None, meta, _make_event())
-        # Must not propagate
-        await obs.on_pipeline_end(None, None, meta, 1.0)
-
-        # Buffer should be cleared despite the error
-        assert obs._events == []
-        assert obs._run_id is None
-
-    @pytest.mark.asyncio
-    async def test_backend_save_error_suppressed_on_error(self) -> None:
-        """Backend raising on save_run is suppressed during on_pipeline_error."""
-        broken = MagicMock()
-        broken.save_run.side_effect = PermissionError("read-only fs")
-
-        obs = _AutoPersistenceObserver(
-            backend=broken,
-            pipeline_hash="abc123",
-            describe_snapshot={},
-        )
-        meta = _make_meta()
-
-        await obs.on_pipeline_start(None, None, meta)
-        await obs.on_event(None, None, meta, _make_event())
-        # Must not propagate
-        await obs.on_pipeline_error(None, None, meta, ValueError("step boom"))
-
-        # Buffer should be cleared despite the error
-        assert obs._events == []
-        assert obs._run_id is None
 
     @pytest.mark.asyncio
     async def test_serialize_event_error_suppressed(self) -> None:

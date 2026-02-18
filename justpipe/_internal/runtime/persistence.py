@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 import os
 import time
 from datetime import datetime, timedelta
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -27,12 +29,10 @@ def _serialize_event(event: Event) -> str:
     - Non-serializable payloads → str() fallback
     """
 
-    import dataclasses
-
     def _default(obj: Any) -> Any:
         if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
             return dataclasses.asdict(obj)
-        if hasattr(obj, "value"):
+        if isinstance(obj, Enum):
             return obj.value
         return str(obj)
 
@@ -152,7 +152,7 @@ class _AutoPersistenceObserver(Observer):
                             pass
                     error_message = payload.get("error")
                     error_step = payload.get("failed_step")
-                    raw_meta = payload.get("run_meta")
+                    raw_meta = parsed.get("meta")
                     if raw_meta:
                         run_meta = json.dumps(raw_meta)
                     dur = payload.get("duration_s")
@@ -193,6 +193,7 @@ class _AutoPersistenceObserver(Observer):
 
     def _write_pipeline_json(self) -> None:
         """Write pipeline descriptor alongside the storage."""
+        pipeline_json: Path | None = None
         try:
             storage_dir = _resolve_storage_path() / self._pipeline_hash
             storage_dir.mkdir(parents=True, exist_ok=True)
@@ -200,4 +201,4 @@ class _AutoPersistenceObserver(Observer):
             if not pipeline_json.exists():
                 pipeline_json.write_text(json.dumps(self._describe_snapshot, indent=2))
         except Exception as exc:
-            logger.warning("Failed to write %s: %s", pipeline_json, exc)
+            logger.warning("Failed to write pipeline.json for %s: %s", pipeline_json or self._pipeline_hash, exc)

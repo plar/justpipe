@@ -209,7 +209,7 @@ class SQLiteBackend:
             ),
             status=PipelineTerminalStatus(row["status"])
             if row["status"]
-            else PipelineTerminalStatus.SUCCESS,
+            else PipelineTerminalStatus.FAILED,
             error_message=row["error_message"],
             error_step=row["error_step"],
             run_meta=row["run_meta"],

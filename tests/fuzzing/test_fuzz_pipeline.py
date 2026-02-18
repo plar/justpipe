@@ -197,6 +197,8 @@ async def test_fuzz_pipeline_timeout(timeout: float | None) -> None:
         # Might timeout with very small values, but shouldn't crash
         try:
             events = [e async for e in pipe.run(None, timeout=timeout)]
+            # If it completes, it should have a terminal event
+            assert any(e.type in (EventType.FINISH, EventType.TIMEOUT) for e in events)
         except TimeoutError:
             pass  # Expected for very small timeouts
 
@@ -265,13 +267,13 @@ async def test_fuzz_cancellation_timing(cancel_delay: float, step_count: int) ->
                     cancelled = True
                     break
         completed = True
-    except Exception:
-        pass
+    except (asyncio.CancelledError, TimeoutError):
+        pass  # Expected cancellation-related exceptions
 
     await task
 
     # Either cancelled or completed (timing dependent)
-    # Just verify it didn't crash
+    assert cancelled or completed, "Pipeline must either cancel or complete"
     assert cancelled or completed
 
 

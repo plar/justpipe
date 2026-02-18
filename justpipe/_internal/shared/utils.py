@@ -5,6 +5,22 @@ from justpipe.types import CancellationToken
 from justpipe._internal.types import InjectionMetadata, InjectionSource
 
 
+def format_duration(seconds: float | None) -> str:
+    """Format duration for display.
+
+    Shared by CLI formatting and timeline visualization.
+    """
+    if seconds is None:
+        return "-"
+    if seconds < 1:
+        return f"{seconds * 1000:.0f}ms"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    if seconds < 3600:
+        return f"{seconds / 60:.1f}m"
+    return f"{seconds / 3600:.1f}h"
+
+
 def _resolve_name(target: str | Callable[..., Any]) -> str:
     """Resolve a name string from a string or callable target."""
     if isinstance(target, str):

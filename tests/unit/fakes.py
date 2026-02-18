@@ -157,8 +157,8 @@ class FakeOrchestrator(TaskOrchestrator[Any, Any]):
             scope=invocation.scope if invocation else (),
         )
         await self.complete_step(
-            owner,
             name,
+            owner,
             None,
             track_owner=track_owner,
             invocation=invocation,

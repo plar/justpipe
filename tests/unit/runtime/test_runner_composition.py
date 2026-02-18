@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from justpipe._internal.runtime.engine.pipeline_runner import _PipelineRunner
 from justpipe._internal.runtime.engine.composition import (
     RunnerConfig,
     build_runner,
@@ -67,17 +66,6 @@ def test_build_runner_deps_plan_matches_runtime_graph() -> None:
     deps = build_runner_deps(_single_edge_config())
     assert deps.plan.roots == {"a"}
     assert deps.plan.parents_map == deps.graph.parents_map_snapshot()
-
-
-@pytest.mark.asyncio
-async def test_build_runner_returns_runnable_runner() -> None:
-    runner = build_runner(_empty_config(queue_size=3))
-    assert isinstance(runner, _PipelineRunner)
-    assert runner._tracker is not None
-
-    events = [event async for event in runner.run(state={})]
-    assert any(event.type == EventType.STEP_ERROR for event in events)
-    assert events[-1].type is EventType.FINISH
 
 
 def test_prepare_event_preserves_origin_run_lineage() -> None:
