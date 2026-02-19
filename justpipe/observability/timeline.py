@@ -183,10 +183,6 @@ class TimelineVisualizer(Observer):
         step_info.sort(key=lambda x: x.start)
         return step_info
 
-    def _format_duration(self, seconds: float) -> str:
-        """Format duration for display."""
-        return format_duration(seconds)
-
     def render_ascii(self, max_steps: int = 20) -> str:
         """Generate ASCII timeline.
 
@@ -205,7 +201,7 @@ class TimelineVisualizer(Observer):
         # Header
         lines.append("")
         lines.append(
-            f"{self.pipeline_name} - Execution Timeline ({self._format_duration(total_duration)})"
+            f"{self.pipeline_name} - Execution Timeline ({format_duration(total_duration)})"
         )
         lines.append("")
 
@@ -255,7 +251,7 @@ class TimelineVisualizer(Observer):
             marker = " ← Bottleneck" if info.name == bottleneck else ""
 
             # Format line
-            duration_str = self._format_duration(info.duration)
+            duration_str = format_duration(info.duration)
             line = f"{name:<28} {bar:<{bar_width}} {duration_str:>8}{marker}"
             lines.append(line)
 
@@ -265,7 +261,7 @@ class TimelineVisualizer(Observer):
         lines.append("")
 
         # Time axis
-        axis = "0" + " " * (bar_width - 10) + self._format_duration(total_duration)
+        axis = "0" + " " * (bar_width - 10) + format_duration(total_duration)
         lines.append(" " * 28 + axis)
         lines.append("")
 
@@ -307,7 +303,7 @@ class TimelineVisualizer(Observer):
             is_bottleneck = info.name == bottleneck
             bottleneck_class = " bottleneck" if is_bottleneck else ""
             safe_name = html.escape(info.name)
-            duration_str = self._format_duration(info.duration)
+            duration_str = format_duration(info.duration)
 
             step_rows.append(f"""
             <div class="step">
@@ -319,7 +315,7 @@ class TimelineVisualizer(Observer):
             </div>""")
 
         steps_html = "".join(step_rows)
-        duration_str = self._format_duration(total_duration)
+        duration_str = format_duration(total_duration)
 
         # Use template string for clean HTML structure
         return f"""<!DOCTYPE html>

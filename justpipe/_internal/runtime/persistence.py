@@ -231,7 +231,6 @@ class _AutoPersistenceObserver(Observer):
 
     def _write_pipeline_json(self) -> None:
         """Write pipeline descriptor alongside the storage."""
-        pipeline_json: Path | None = None
         try:
             storage_dir = resolve_storage_path() / self._pipeline_hash
             storage_dir.mkdir(parents=True, exist_ok=True)
@@ -239,4 +238,4 @@ class _AutoPersistenceObserver(Observer):
             if not pipeline_json.exists():
                 pipeline_json.write_text(json.dumps(self._describe_snapshot, indent=2))
         except Exception as exc:
-            logger.warning("Failed to write pipeline.json for %s: %s", pipeline_json or self._pipeline_hash, exc)
+            logger.warning("Failed to write pipeline.json for %s: %s", self._pipeline_hash, exc)

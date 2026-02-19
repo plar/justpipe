@@ -39,10 +39,10 @@ def _resolve_name(target: str | Callable[..., Any]) -> str:
         return target
 
     if hasattr(target, "func") and hasattr(target.func, "__name__"):
-        return str(target.func.__name__)
+        return target.func.__name__
 
     if hasattr(target, "__name__"):
-        return str(target.__name__)
+        return target.__name__
 
     if callable(target):
         return str(type(target).__name__)
@@ -77,16 +77,15 @@ def _resolve_injection_kwargs(
     step_name: str | None = None,
     cancellation_token: CancellationToken | None = None,
 ) -> dict[str, Any]:
-    kwargs: dict[str, Any] = {}
-    for param_name, source in inj_meta.items():
-        if source == InjectionSource.STATE:
-            kwargs[param_name] = state
-        elif source == InjectionSource.CONTEXT:
-            kwargs[param_name] = context
-        elif source == InjectionSource.ERROR:
-            kwargs[param_name] = error
-        elif source == InjectionSource.STEP_NAME:
-            kwargs[param_name] = step_name
-        elif source == InjectionSource.CANCEL:
-            kwargs[param_name] = cancellation_token
-    return kwargs
+    source_values = {
+        InjectionSource.STATE: state,
+        InjectionSource.CONTEXT: context,
+        InjectionSource.ERROR: error,
+        InjectionSource.STEP_NAME: step_name,
+        InjectionSource.CANCEL: cancellation_token,
+    }
+    return {
+        param_name: source_values[source]
+        for param_name, source in inj_meta.items()
+        if source in source_values
+    }

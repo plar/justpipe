@@ -136,10 +136,6 @@ class _RuntimeMetricsRecorder:
 
         elif event.type == EventType.MAP_START:
             self._maps_started += 1
-        elif event.type == EventType.MAP_WORKER:
-            # MAP_WORKER remains a user-facing event. Worker concurrency is tracked
-            # from actual worker lifecycle callbacks.
-            pass
         elif event.type == EventType.MAP_COMPLETE:
             self._maps_completed += 1
             # MAP_COMPLETE is emitted after map workers drain; worker count should
