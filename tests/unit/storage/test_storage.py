@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -81,6 +82,37 @@ class TestInMemoryBackend:
             backend.save_run(make_run(f"run-{i}"), [])
         matches = backend.find_runs_by_prefix("run-", limit=2)
         assert len(matches) == 2
+
+    def test_get_events_skips_invalid_event_type(self) -> None:
+        """Events with invalid/missing type field are skipped, not crash."""
+        backend = InMemoryBackend()
+        run = make_run("r1")
+
+        events = [
+            json.dumps({"type": "step_start", "stage": "a", "timestamp": 100.0}),
+            json.dumps({"type": "", "stage": "bad", "timestamp": 101.0}),
+            json.dumps({"stage": "missing_type", "timestamp": 102.0}),
+            json.dumps({"type": "step_end", "stage": "a", "timestamp": 103.0}),
+        ]
+        backend.save_run(run, events)
+
+        result = backend.get_events("r1")
+        assert len(result) == 2
+
+    def test_get_events_filtered_with_invalid_types(self) -> None:
+        """Filtering by event_type works even when some events have bad types."""
+        backend = InMemoryBackend()
+        run = make_run("r1")
+
+        events = [
+            json.dumps({"type": "step_start", "stage": "a", "timestamp": 100.0}),
+            json.dumps({"type": "bogus", "stage": "bad", "timestamp": 101.0}),
+            json.dumps({"type": "step_end", "stage": "a", "timestamp": 102.0}),
+        ]
+        backend.save_run(run, events)
+
+        result = backend.get_events("r1", event_type=EventType.STEP_END)
+        assert len(result) == 1
 
 
 class TestSQLiteBackend:

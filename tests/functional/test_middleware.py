@@ -13,7 +13,6 @@ from justpipe import Pipe, simple_logging_middleware, StepContext
         ("sync_step", "sync"),
     ],
 )
-@pytest.mark.asyncio
 async def test_simple_logging_middleware_logs_duration(
     step_name: str,
     step_kind: str,
@@ -54,7 +53,6 @@ async def test_simple_logging_middleware_logs_duration(
     assert f"Step '{step_name}' took" in args[0]
 
 
-@pytest.mark.asyncio
 async def test_middleware_application() -> None:
     pipe: Pipe[Any, Any] = Pipe()
     log: list[str] = []
@@ -82,7 +80,6 @@ async def test_middleware_application() -> None:
     assert log == ["before", "exec", "after"]
 
 
-@pytest.mark.asyncio
 async def test_middleware_chaining() -> None:
     pipe: Pipe[Any, Any] = Pipe()
     order: list[int] = []
@@ -116,7 +113,6 @@ async def test_middleware_chaining() -> None:
     assert order == [2, 1, 3]
 
 
-@pytest.mark.asyncio
 async def test_retry_middleware_integration() -> None:
     # This tests the default retry middleware
     pipe: Pipe[Any, Any] = Pipe()
@@ -135,7 +131,6 @@ async def test_retry_middleware_integration() -> None:
     assert attempts == 3
 
 
-@pytest.mark.asyncio
 async def test_retry_with_dict_config() -> None:
     pipe: Pipe[Any, Any] = Pipe()
     attempts = 0
@@ -153,7 +148,6 @@ async def test_retry_with_dict_config() -> None:
     assert attempts == 2
 
 
-@pytest.mark.asyncio
 async def test_add_middleware_after_first_run_raises() -> None:
     pipe: Pipe[Any, Any] = Pipe()
     order: list[str] = []

@@ -22,7 +22,6 @@ class PlainContext:
 
 
 class TestMetaStepScope:
-    @pytest.mark.asyncio
     async def test_step_meta_on_step_end_event(self) -> None:
         """Step meta is attached to STEP_END Event.meta (not FINISH)."""
         pipe: Pipe[None, MetaContext] = Pipe(context_type=MetaContext, name="test")
@@ -62,7 +61,6 @@ class TestMetaStepScope:
 
 
 class TestMetaRunScope:
-    @pytest.mark.asyncio
     async def test_run_meta_in_finish_event(self) -> None:
         """Run-scope meta appears on FINISH Event.meta (not payload)."""
         pipe: Pipe[None, MetaContext] = Pipe(context_type=MetaContext, name="test")
@@ -89,7 +87,6 @@ class TestMetaRunScope:
 
 
 class TestMetaPipelineScope:
-    @pytest.mark.asyncio
     async def test_pipeline_metadata_readable(self) -> None:
         pipe: Pipe[None, MetaContext] = Pipe(
             context_type=MetaContext,
@@ -114,7 +111,6 @@ class TestMetaPipelineScope:
 
 
 class TestMetaParallelIsolation:
-    @pytest.mark.asyncio
     async def test_each_step_end_carries_own_meta(self) -> None:
         """Parallel steps each get their own step meta on their STEP_END events."""
         pipe: Pipe[None, MetaContext] = Pipe(
@@ -146,7 +142,6 @@ class TestMetaParallelIsolation:
 
 
 class TestNoMetaUnchanged:
-    @pytest.mark.asyncio
     async def test_pipeline_without_meta_runs_normally(self) -> None:
         pipe: Pipe[None, PlainContext] = Pipe(context_type=PlainContext, name="test")
 
@@ -164,7 +159,6 @@ class TestNoMetaUnchanged:
         assert finish_event.meta is None
         assert ctx.val == 42
 
-    @pytest.mark.asyncio
     async def test_pipeline_no_context(self) -> None:
         pipe: Pipe[None, None] = Pipe(name="test")
 
@@ -182,7 +176,6 @@ class TestNoMetaUnchanged:
 
 
 class TestMetaEmptySnapshot:
-    @pytest.mark.asyncio
     async def test_meta_unused_returns_none(self) -> None:
         """If Meta is declared but never written to, FINISH Event.meta should be None."""
         pipe: Pipe[None, MetaContext] = Pipe(context_type=MetaContext, name="test")
@@ -202,7 +195,6 @@ class TestMetaEmptySnapshot:
 
 
 class TestStepMetaOnError:
-    @pytest.mark.asyncio
     async def test_step_error_carries_partial_meta(self) -> None:
         """STEP_ERROR events carry partial meta from before the failure."""
         pipe: Pipe[None, MetaContext] = Pipe(context_type=MetaContext, name="test")
@@ -227,7 +219,6 @@ class TestStepMetaOnError:
 
 
 class TestEventHookEnrichmentVisible:
-    @pytest.mark.asyncio
     async def test_hook_enrichment_visible_to_observers(self) -> None:
         """Event hooks run before observers, so hook-enriched meta is visible."""
         pipe: Pipe[None, None] = Pipe(name="test")

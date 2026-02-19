@@ -35,7 +35,7 @@ def cleanup_command(
 
     # Calculate cutoff datetime if older_than_days specified
     cutoff: datetime | None = None
-    if older_than_days:
+    if older_than_days is not None:
         cutoff = datetime.now() - timedelta(days=older_than_days)
 
     # Sort by start time (newest first)

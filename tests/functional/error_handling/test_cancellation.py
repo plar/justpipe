@@ -14,7 +14,6 @@ from justpipe.types import (
 )
 
 
-@pytest.mark.asyncio
 async def test_cancellation_token_injection() -> None:
     """Test that cancellation token is injected into steps."""
     cancel = CancellationToken()
@@ -31,7 +30,6 @@ async def test_cancellation_token_injection() -> None:
     assert token_received is cancel
 
 
-@pytest.mark.asyncio
 async def test_pipeline_emits_cancelled_event_and_terminal_status() -> None:
     """Cancellation via token checkpoint should emit CANCELLED and terminal CANCELLED."""
     cancel = CancellationToken()
@@ -54,7 +52,6 @@ async def test_pipeline_emits_cancelled_event_and_terminal_status() -> None:
     assert finish.payload.failure_kind == FailureKind.NONE
 
 
-@pytest.mark.asyncio
 async def test_cancellation_in_map_workers() -> None:
     """Test that cancellation works in map workers via checkpoint."""
     cancel = CancellationToken()
@@ -101,7 +98,6 @@ async def test_cancellation_in_map_workers() -> None:
     assert len(cancelled_or_error) >= 1
 
 
-@pytest.mark.asyncio
 async def test_cancelled_step_does_not_emit_step_error() -> None:
     """A cancelled step should only emit CANCELLED, never STEP_ERROR."""
     cancel = CancellationToken()
@@ -127,7 +123,6 @@ async def test_cancelled_step_does_not_emit_step_error() -> None:
     )
 
 
-@pytest.mark.asyncio
 async def test_cancellation_without_checkpoint() -> None:
     """Test that cancellation without checkpoints doesn't stop execution."""
     cancel = CancellationToken()

@@ -183,7 +183,6 @@ class _InvokerFailureWithMeta:
         raise ValueError("boom after meta")
 
 
-@pytest.mark.asyncio
 async def test_execute_step_emits_start_and_completes() -> None:
     step_errors = _StepErrorStore()
     port = _FakeCoordinatorPort(state={"state": 1}, context={"context": 1})
@@ -205,7 +204,6 @@ async def test_execute_step_emits_start_and_completes() -> None:
     assert not port.failures
 
 
-@pytest.mark.asyncio
 async def test_execute_step_captures_step_meta() -> None:
     """Step meta written during execution is captured and passed to complete_step."""
     step_errors = _StepErrorStore()
@@ -231,7 +229,6 @@ async def test_execute_step_captures_step_meta() -> None:
     assert meta["framework"]["duration_s"] >= 0
 
 
-@pytest.mark.asyncio
 async def test_execute_step_no_user_meta_has_framework_only() -> None:
     """When no user step meta is written, step_meta still contains framework timing."""
     step_errors = _StepErrorStore()
@@ -256,7 +253,6 @@ async def test_execute_step_no_user_meta_has_framework_only() -> None:
     assert "tags" not in meta
 
 
-@pytest.mark.asyncio
 async def test_fail_step_records_error_and_emits_terminal_step() -> None:
     step_errors = _StepErrorStore()
     port = _FakeCoordinatorPort()
@@ -293,7 +289,6 @@ async def test_fail_step_records_error_and_emits_terminal_step() -> None:
     ]
 
 
-@pytest.mark.asyncio
 async def test_fail_step_with_step_meta() -> None:
     """fail_step passes step_meta to STEP_ERROR emit and complete_step."""
     step_errors = _StepErrorStore()
@@ -317,7 +312,6 @@ async def test_fail_step_with_step_meta() -> None:
     assert port.completed[0].step_meta == meta
 
 
-@pytest.mark.asyncio
 async def test_execute_step_failure_delegates_to_failure_handler() -> None:
     step_errors = _StepErrorStore()
     port = _FakeCoordinatorPort(state={"s": 1}, context={"c": 1})
@@ -349,7 +343,6 @@ async def test_execute_step_failure_delegates_to_failure_handler() -> None:
     assert meta["framework"]["status"] == "error"
 
 
-@pytest.mark.asyncio
 async def test_execute_step_failure_carries_partial_step_meta() -> None:
     """When a step fails after writing meta, the partial meta is passed to handle_execution_failure."""
     step_errors = _StepErrorStore()

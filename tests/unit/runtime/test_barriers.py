@@ -28,7 +28,6 @@ class FakeTask:
         self.cancel_calls += 1
 
 
-@pytest.mark.asyncio
 async def test_barrier_manager_handle_completion_starts_next(
     fake_orchestrator: Any,
 ) -> None:
@@ -46,7 +45,6 @@ async def test_barrier_manager_handle_completion_starts_next(
     assert fake_orchestrator.schedules[0].name == "next"
 
 
-@pytest.mark.asyncio
 async def test_barrier_manager_handle_completion_schedules_barrier(
     fake_orchestrator: Any,
 ) -> None:
@@ -65,7 +63,6 @@ async def test_barrier_manager_handle_completion_schedules_barrier(
     assert "barrier" in manager._barrier_tasks
 
 
-@pytest.mark.asyncio
 async def test_barrier_manager_stop(fake_orchestrator: Any) -> None:
     task = FakeTask()
 

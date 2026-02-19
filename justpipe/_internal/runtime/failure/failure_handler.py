@@ -60,6 +60,7 @@ class _FailureHandler:
                 return
             except Exception as new_error:
                 # Local handler failed, escalate to global
+                new_error.__cause__ = error
                 error = new_error
 
         # 2. Try Global Handler
@@ -80,6 +81,7 @@ class _FailureHandler:
                 )
                 return
             except Exception as final_error:
+                final_error.__cause__ = error
                 error = final_error
 
         # 3. Default Reporting (Terminal)

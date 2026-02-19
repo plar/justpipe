@@ -49,13 +49,17 @@ class InMemoryBackend:
         for seq, data_str in enumerate(raw, start=1):
             parsed = json.loads(data_str)
             et = parsed.get("type", "")
-            if event_type is not None and EventType(et) != event_type:
+            try:
+                event_type_val = EventType(et)
+            except ValueError:
+                continue
+            if event_type is not None and event_type_val != event_type:
                 continue
             result.append(
                 StoredEvent(
                     seq=seq,
                     timestamp=datetime.fromtimestamp(parsed.get("timestamp", 0)),
-                    event_type=EventType(et),
+                    event_type=event_type_val,
                     step_name=parsed.get("stage", ""),
                     data=data_str,
                 )

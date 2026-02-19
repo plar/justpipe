@@ -35,26 +35,30 @@ class TestScopedMeta:
         m.add_tag("important")
         m.add_tag("urgent")
         m.add_tag("important")  # duplicate
-        assert m._tags == {"important", "urgent"}
+        snap = m._snapshot()
+        assert set(snap["tags"]) == {"important", "urgent"}
 
     def test_record_metric(self) -> None:
         m = _ScopedMeta()
         m.record_metric("latency", 1.5)
         m.record_metric("latency", 2.0)
         m.record_metric("latency", 0.8)
-        assert m._metrics["latency"] == [1.5, 2.0, 0.8]
+        snap = m._snapshot()
+        assert snap["metrics"]["latency"] == [1.5, 2.0, 0.8]
 
     def test_increment(self) -> None:
         m = _ScopedMeta()
         m.increment("count")
         m.increment("count")
         m.increment("count", 5)
-        assert m._counters["count"] == 7
+        snap = m._snapshot()
+        assert snap["counters"]["count"] == 7
 
     def test_increment_default_amount(self) -> None:
         m = _ScopedMeta()
         m.increment("hits")
-        assert m._counters["hits"] == 1
+        snap = m._snapshot()
+        assert snap["counters"]["hits"] == 1
 
     def test_snapshot_empty(self) -> None:
         m = _ScopedMeta()
@@ -153,7 +157,6 @@ class TestStepMetaImpl:
         assert scoped_a.get("x") == 1
         assert scoped_b.get("x") == 2
 
-    @pytest.mark.asyncio
     async def test_parallel_isolation(self) -> None:
         """Concurrent tasks with separate contextvars have isolated step meta."""
         m = _StepMetaImpl()

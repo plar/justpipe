@@ -20,7 +20,6 @@ class _CustomObject:
         pytest.param(_CustomObject(), "_CustomObject", id="object"),
     ],
 )
-@pytest.mark.asyncio
 async def test_return_value_triggers_warning(
     return_value: Any, expected_type_name: str
 ) -> None:
@@ -43,7 +42,6 @@ async def test_return_value_triggers_warning(
         assert expected_type_name in str(w[0].message)
 
 
-@pytest.mark.asyncio
 async def test_return_none_no_warning() -> None:
     """Test that returning None does not trigger a warning."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -61,7 +59,6 @@ async def test_return_none_no_warning() -> None:
         assert len(w) == 0
 
 
-@pytest.mark.asyncio
 async def test_return_string_no_warning() -> None:
     """Test that returning a step name (string) does not trigger a warning."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -83,7 +80,6 @@ async def test_return_string_no_warning() -> None:
         assert len(w) == 0
 
 
-@pytest.mark.asyncio
 async def test_return_stop_no_warning() -> None:
     """Test that returning Stop does not trigger a warning."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -101,7 +97,6 @@ async def test_return_stop_no_warning() -> None:
         assert len(w) == 0
 
 
-@pytest.mark.asyncio
 async def test_warning_message_contains_helpful_info() -> None:
     """Test that warning message contains helpful information."""
     pipe: Pipe[Any, Any] = Pipe()

@@ -31,7 +31,6 @@ def _fake_event(**overrides: Any) -> Event:
     return Event(**defaults)
 
 
-@pytest.mark.asyncio
 async def test_all_callables_fire_in_correct_order() -> None:
     """prepare_event -> apply_hooks -> on_event -> notify_event."""
     order: list[str] = []
@@ -62,7 +61,6 @@ async def test_all_callables_fire_in_correct_order() -> None:
     assert order == ["prepare", "hooks", "on_event", "notify"]
 
 
-@pytest.mark.asyncio
 async def test_optional_callbacks_skipped() -> None:
     """When prepare_event=None and on_event=None, only hooks + notify fire."""
     order: list[str] = []
@@ -86,7 +84,6 @@ async def test_optional_callbacks_skipped() -> None:
     assert order == ["hooks", "notify"]
 
 
-@pytest.mark.asyncio
 async def test_hook_mutation_visible_to_observers() -> None:
     """apply_hooks modifies the event; notify_event receives the modified event."""
     original = _fake_event(seq=1)
@@ -108,7 +105,6 @@ async def test_hook_mutation_visible_to_observers() -> None:
     assert received == [mutated]
 
 
-@pytest.mark.asyncio
 async def test_state_passed_to_notify() -> None:
     """state_getter() return value is passed as second arg to notify_event."""
     state_obj = {"key": "value"}
@@ -127,7 +123,6 @@ async def test_state_passed_to_notify() -> None:
     assert captured_state == [state_obj]
 
 
-@pytest.mark.asyncio
 async def test_returns_possibly_mutated_event() -> None:
     """publish() returns the event after hook mutation."""
     original = _fake_event(seq=1)
@@ -142,7 +137,6 @@ async def test_returns_possibly_mutated_event() -> None:
     assert result is mutated
 
 
-@pytest.mark.asyncio
 async def test_hooks_run_before_on_event_and_notify() -> None:
     """Verify apply_hooks runs before on_event and notify_event by tracking call order."""
     order: list[str] = []

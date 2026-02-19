@@ -164,7 +164,6 @@ class TestAutoPersistenceObserver:
         )
         return obs, backend
 
-    @pytest.mark.asyncio
     async def test_buffers_events_and_flushes_on_end(self) -> None:
         obs, backend = self._make_observer()
         meta = _make_meta()
@@ -185,7 +184,6 @@ class TestAutoPersistenceObserver:
         events = backend.get_events("test-run-123")
         assert len(events) == 2
 
-    @pytest.mark.asyncio
     async def test_flush_on_error(self) -> None:
         obs, backend = self._make_observer()
         meta = _make_meta()
@@ -199,7 +197,6 @@ class TestAutoPersistenceObserver:
         assert run.status == PipelineTerminalStatus.FAILED
         assert run.error_message == "boom"
 
-    @pytest.mark.asyncio
     async def test_extracts_status_from_finish_event(self) -> None:
         obs, backend = self._make_observer()
         meta = _make_meta()
@@ -226,7 +223,6 @@ class TestAutoPersistenceObserver:
         assert run.error_message == "step exploded"
         assert run.error_step == "step_a"
 
-    @pytest.mark.asyncio
     async def test_extracts_run_meta_from_finish(self) -> None:
         obs, backend = self._make_observer()
         meta = _make_meta()
@@ -254,7 +250,6 @@ class TestAutoPersistenceObserver:
         assert parsed["tags"] == ["prod"]
         assert parsed["data"]["env"] == "prod"
 
-    @pytest.mark.asyncio
     async def test_clears_buffer_after_flush(self) -> None:
         obs, backend = self._make_observer()
 
@@ -284,7 +279,6 @@ class TestAutoPersistenceObserver:
             pytest.param(PermissionError, "read-only fs", "error", id="permission-error-error"),
         ],
     )
-    @pytest.mark.asyncio
     async def test_backend_save_error_suppressed(
         self,
         error_class: type[Exception],
@@ -312,7 +306,6 @@ class TestAutoPersistenceObserver:
         assert obs._events == []
         assert obs._run_id is None
 
-    @pytest.mark.asyncio
     async def test_no_flush_without_start(self) -> None:
         """Flush is a no-op if on_pipeline_start was never called."""
         obs, backend = self._make_observer()
@@ -323,7 +316,6 @@ class TestAutoPersistenceObserver:
 
         assert backend.get_run("test-run-123") is None
 
-    @pytest.mark.asyncio
     async def test_run_record_has_timestamps(self) -> None:
         obs, backend = self._make_observer()
         meta = _make_meta()
@@ -338,7 +330,6 @@ class TestAutoPersistenceObserver:
         assert isinstance(run.duration, timedelta)
         assert run.duration.total_seconds() >= 0
 
-    @pytest.mark.asyncio
     async def test_serialize_event_error_suppressed(self) -> None:
         """Serialization failure for a single event logs warning, does not crash."""
         obs, backend = self._make_observer()

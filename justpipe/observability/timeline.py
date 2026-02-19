@@ -252,7 +252,7 @@ class TimelineVisualizer(Observer):
             bar += "█" * max(1, int(duration_width))
 
             # Mark bottleneck
-            marker = " ← Bottleneck" if name == bottleneck else ""
+            marker = " ← Bottleneck" if info.name == bottleneck else ""
 
             # Format line
             duration_str = self._format_duration(info.duration)

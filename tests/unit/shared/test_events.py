@@ -5,7 +5,6 @@ from justpipe._internal.runtime.orchestration.event_manager import _EventManager
 from justpipe.observability import ObserverMeta
 
 
-@pytest.mark.asyncio
 async def test_event_manager_notify_start() -> None:
     observer = MagicMock()
     observer.on_pipeline_start = AsyncMock()
@@ -23,7 +22,6 @@ async def test_event_manager_notify_start() -> None:
     assert meta_arg.started_at is not None
 
 
-@pytest.mark.asyncio
 async def test_event_manager_notify_event() -> None:
     observer = MagicMock()
     observer.on_event = AsyncMock()
@@ -60,7 +58,6 @@ def test_event_manager_apply_hooks() -> None:
     assert result.stage == "hooked"
 
 
-@pytest.mark.asyncio
 async def test_event_manager_observer_error_handling(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -111,7 +108,6 @@ def test_apply_hooks_rejects_invalid_hook_result(
         ),
     ],
 )
-@pytest.mark.asyncio
 async def test_notify_logs_observer_errors(
     hook_name: str,
     method_name: str,

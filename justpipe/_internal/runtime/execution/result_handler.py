@@ -46,15 +46,17 @@ class _ResultHandler:
         res = item.result
 
         if isinstance(res, Raise):
-            if res.exception:
-                await self._failure_handler.handle_failure(
-                    item.name,
-                    item.owner,
-                    res.exception,
-                    item.payload,
-                    state,
-                    context,
-                )
+            error = res.exception or RuntimeError(
+                f"Step '{item.name}' returned Raise() without an exception"
+            )
+            await self._failure_handler.handle_failure(
+                item.name,
+                item.owner,
+                error,
+                item.payload,
+                state,
+                context,
+            )
             return
 
         if isinstance(res, Skip):
