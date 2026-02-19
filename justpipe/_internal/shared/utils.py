@@ -39,10 +39,10 @@ def _resolve_name(target: str | Callable[..., Any]) -> str:
         return target
 
     if hasattr(target, "func") and hasattr(target.func, "__name__"):
-        return target.func.__name__
+        return str(target.func.__name__)
 
     if hasattr(target, "__name__"):
-        return target.__name__
+        return str(target.__name__)
 
     if callable(target):
         return str(type(target).__name__)

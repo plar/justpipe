@@ -211,7 +211,11 @@ class EventLogger(Observer):
 
         import time as _time
 
-        timestamp = self.start_time + duration_s if self.start_time is not None else _time.time()
+        timestamp = (
+            self.start_time + duration_s
+            if self.start_time is not None
+            else _time.time()
+        )
         message = self._colorize(f"Pipeline completed in {duration_s:.2f}s", "GREEN")
         self._emit(
             LogRecord(

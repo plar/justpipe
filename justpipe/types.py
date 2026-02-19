@@ -137,7 +137,6 @@ class Event:
     meta: dict[str, Any] | None = None
 
 
-
 class ScopedMeta(Protocol):
     """Writable metadata scope. Used for both step and run.
 

@@ -51,7 +51,9 @@ class _RuntimeMetricsRecorder:
         self._suspends = 0
 
         # Step timing (keyed by invocation_id to handle concurrent map workers)
-        self._step_start_times: dict[str, tuple[str, float]] = {}  # inv_id -> (stage, ts)
+        self._step_start_times: dict[
+            str, tuple[str, float]
+        ] = {}  # inv_id -> (stage, ts)
         self._step_stats: dict[str, _StepAccumulator] = defaultdict(_StepAccumulator)
 
         # Barriers
@@ -124,9 +126,7 @@ class _RuntimeMetricsRecorder:
             barrier_stats.waits += 1
 
         elif event.type == EventType.BARRIER_RELEASE:
-            barrier_start: float | None = self._barrier_starts.pop(
-                event.stage, None
-            )
+            barrier_start: float | None = self._barrier_starts.pop(event.stage, None)
             barrier_stats = self._barrier_stats[event.stage]
             barrier_stats.releases += 1
             if barrier_start is not None:

@@ -173,11 +173,14 @@ class TimelineVisualizer(Observer):
         raw = [
             (e.stage, e.event_type, e.timestamp)
             for e in self.events
-            if e.event_type in {EventType.STEP_START, EventType.STEP_END, EventType.STEP_ERROR}
+            if e.event_type
+            in {EventType.STEP_START, EventType.STEP_END, EventType.STEP_ERROR}
         ]
         spans = pair_step_events(raw)
         step_info = [
-            _TimelineSlot(name=s.step_name, start=s.start, end=s.end, duration=s.duration)
+            _TimelineSlot(
+                name=s.step_name, start=s.start, end=s.end, duration=s.duration
+            )
             for s in spans
         ]
         step_info.sort(key=lambda x: x.start)

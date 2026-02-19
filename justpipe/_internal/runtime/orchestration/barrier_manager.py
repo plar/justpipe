@@ -109,9 +109,7 @@ class _BarrierManager:
                 {"duration": 0},
                 node_kind=NodeKind.BARRIER,
             )
-            await self._orchestrator.complete_step(
-                name, name, None, track_owner=False
-            )
+            await self._orchestrator.complete_step(name, name, None, track_owner=False)
         finally:
             self._barrier_events.pop(name, None)
             self._barrier_tasks.pop(name, None)
