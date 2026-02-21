@@ -492,7 +492,7 @@ export class IsometricScene {
   /**
    * Draw iso-projected group containers (parallelograms on the ground plane).
    */
-  private drawIsoGroups(state: DagSceneState, colors: Record<string, number>): void {
+  private drawIsoGroups(state: DagSceneState, _colors: Record<string, number>): void {
     // Clean up previous iso groups
     if (this.isoGroupContainer) {
       this.isoGroupContainer.parent?.removeChild(this.isoGroupContainer)

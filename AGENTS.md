@@ -96,6 +96,8 @@ Always run these commands from the project root using `uv`.
 | **Coverage** | `uv run pytest tests --cov=justpipe --cov-report=term-missing` |
 | **Benchmarks** | `uv run pytest benchmarks/ -q` |
 | **Mutation (Local)** | `uv run mutmut run` |
+| **Dashboard Dev** | `cd dashboard-ui && npm install && npm run dev` |
+| **Dashboard Build** | `cd dashboard-ui && npm run build` |
 
 ### Testing Strategy
 - **Unit Tests (`tests/unit`)**: Test individual components (`test_visualization_builder.py`, `test_storage.py`).
@@ -110,7 +112,7 @@ Always run these commands from the project root using `uv`.
 - **Determinism Rule**: Prefer `asyncio.Event`/explicit coordination over sleep-driven timing in async tests.
 - **Observability Test Rule**: Prefer structured-record assertions (sink outputs) over brittle raw string matching.
 - **`asyncio_mode = "auto"`** in pytest config — do NOT add `@pytest.mark.asyncio` to tests.
-- **567 tests** is the current baseline — all must pass before committing.
+- **583 tests** is the current baseline — all must pass before committing.
 - **`examples/`** is excluded from both ruff and mypy.
 
 ### Local Mutation Testing Notes
@@ -171,7 +173,7 @@ Steps control the graph by returning specific primitives (import from `justpipe`
 ## 🚦 Common Pitfalls
 - **Zero-dep Core**: `justpipe` has no runtime dependencies. `tenacity`, `click`, `rich`, `fastapi` are optional extras.
 - **Persistence Off by Default**: `persist=False` — no surprise disk writes unless explicitly enabled.
-- **Dashboard Frontend**: `dashboard-ui/` is a Vue 3 + Vite + Tailwind v4 app; built assets go to `justpipe/dashboard/static/` via custom hatch build hook.
+- **Dashboard Frontend**: `dashboard-ui/` is a Vue 3 + Vite + Tailwind v4 + PixiJS + ELK + Pinia app; built assets go to `justpipe/dashboard/static/` via custom hatch build hook.
 - **Type Erasure**: `justpipe` requires `state_type` and `context_type` in `Pipe()` constructor for runtime signature analysis.
 - **Backpressure**: The event queue has a default size (`1000`). If many tokens are yielded without being consumed, the pipeline will block.
 - **Mutable State**: State is shared across parallel steps. Use thread-safe patterns or `context` for read-only data.
