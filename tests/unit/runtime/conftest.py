@@ -19,3 +19,15 @@ def single_step_config() -> RunnerConfig[Any, Any]:
         startup_hooks=[],
         shutdown_hooks=[],
     )
+
+
+def _empty_config(queue_size: int = 0) -> RunnerConfig[Any, Any]:
+    """Create a minimal RunnerConfig with no steps."""
+    return RunnerConfig(
+        steps={},
+        topology={},
+        injection_metadata={},
+        startup_hooks=[],
+        shutdown_hooks=[],
+        queue_size=queue_size,
+    )

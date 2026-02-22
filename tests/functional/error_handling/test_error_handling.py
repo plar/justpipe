@@ -226,64 +226,37 @@ async def test_streaming_exception_midstream() -> None:
     assert events[-1].type == EventType.FINISH
 
 
-async def test_error_handler_sync_function() -> None:
-    """Test error handler works with synchronous functions."""
-    pipe: Pipe[dict[str, int], None] = Pipe()
-    handler_called = False
+def _sync_handler(error: Exception, state: dict[str, int]) -> None:
+    state["handler_called"] = True
 
-    def sync_error_handler(error: Exception, state: dict[str, int]) -> None:
-        nonlocal handler_called
-        handler_called = True
 
-    @pipe.step(on_error=sync_error_handler)
-    async def failing_step(state: dict[str, int]) -> None:
+async def _async_handler(error: Exception, state: dict[str, int]) -> None:
+    state["handler_called"] = True
+    await asyncio.sleep(0)
+
+
+def _sync_returning_awaitable(error: Exception, state: dict[str, int]) -> Any:
+    state["handler_called"] = True
+    return asyncio.sleep(0)
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [
+        pytest.param(_sync_handler, id="sync"),
+        pytest.param(_async_handler, id="async"),
+        pytest.param(_sync_returning_awaitable, id="sync-returning-awaitable"),
+    ],
+)
+async def test_error_handler_types(handler: Any) -> None:
+    """Error handlers work regardless of sync/async/awaitable-returning style."""
+    pipe: Pipe[dict[str, Any], None] = Pipe()
+
+    @pipe.step(on_error=handler)
+    async def failing_step(state: dict[str, Any]) -> None:
         raise ValueError("test error")
 
-    _ = [e async for e in pipe.run({})]
+    state: dict[str, Any] = {}
+    _ = [e async for e in pipe.run(state)]
 
-    assert handler_called, "Synchronous error handler should have been called"
-
-
-async def test_error_handler_async_function() -> None:
-    """Test error handler works with async functions."""
-    pipe: Pipe[dict[str, int], None] = Pipe()
-    handler_called = False
-
-    async def async_error_handler(error: Exception, state: dict[str, int]) -> None:
-        nonlocal handler_called
-        handler_called = True
-        await asyncio.sleep(0)  # Ensure it's actually async
-
-    @pipe.step(on_error=async_error_handler)
-    async def failing_step(state: dict[str, int]) -> None:
-        raise ValueError("test error")
-
-    _ = [e async for e in pipe.run({})]
-
-    assert handler_called, "Async error handler should have been called"
-
-
-async def test_error_handler_sync_returning_awaitable() -> None:
-    """Test error handler works with sync functions that return awaitables.
-
-    This tests the fix for inconsistent async conventions - we now properly
-    handle sync functions that return coroutines.
-    """
-    import asyncio
-
-    pipe: Pipe[dict[str, int], None] = Pipe()
-    handler_called = False
-
-    def sync_returning_awaitable(error: Exception, state: dict[str, int]) -> Any:
-        nonlocal handler_called
-        handler_called = True
-        # Return a coroutine (not await it)
-        return asyncio.sleep(0)
-
-    @pipe.step(on_error=sync_returning_awaitable)
-    async def failing_step(state: dict[str, int]) -> None:
-        raise ValueError("test error")
-
-    _ = [e async for e in pipe.run({})]
-
-    assert handler_called, "Handler should have been called"
+    assert state.get("handler_called"), "Error handler should have been called"

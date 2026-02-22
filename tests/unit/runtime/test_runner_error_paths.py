@@ -6,8 +6,8 @@ from unittest.mock import ANY, AsyncMock
 
 import pytest
 
-from justpipe._internal.runtime.engine.composition import RunnerConfig, build_runner
-from tests.unit.runtime.conftest import single_step_config
+from justpipe._internal.runtime.engine.composition import build_runner
+from tests.unit.runtime.conftest import _empty_config, single_step_config
 from justpipe._internal.runtime.engine.run_state import _RunPhase
 from justpipe.types import (
     Event,
@@ -17,16 +17,6 @@ from justpipe.types import (
     FailureSource,
     NodeKind,
 )
-
-
-def _empty_config() -> RunnerConfig[Any, Any]:
-    return RunnerConfig(
-        steps={},
-        topology={},
-        injection_metadata={},
-        startup_hooks=[],
-        shutdown_hooks=[],
-    )
 
 
 async def _empty_stream() -> Any:

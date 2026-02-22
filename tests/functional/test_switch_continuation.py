@@ -9,19 +9,9 @@ and allow the downstream step to proceed.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from justpipe import EventType, Pipe, Stop
-
-
-async def _collect_events(
-    pipe: Pipe[Any, Any], state: Any = None, **kwargs: Any
-) -> list[Any]:
-    return [e async for e in pipe.run(state, **kwargs)]
-
-
-def _stages(events: list[Any], event_type: EventType) -> list[str]:
-    return [e.stage for e in events if e.type == event_type]
+from tests.functional.helpers import _collect_events, _stages
 
 
 # ---------------------------------------------------------------------------
