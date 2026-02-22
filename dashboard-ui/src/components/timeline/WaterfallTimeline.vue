@@ -7,11 +7,11 @@ import TimelineBar from './TimelineBar.vue'
 const props = defineProps<{
   entries: TimelineEntry[]
   criticalPath: Set<string>
-  selectedStep: string | null
+  selectedIndex: number | null
 }>()
 
 const emit = defineEmits<{
-  selectStep: [stepName: string]
+  selectStep: [index: number]
 }>()
 
 const range = computed(() => {
@@ -52,13 +52,14 @@ const criticalCount = computed(() =>
     </div>
     <div v-else class="space-y-1">
       <TimelineBar
-        v-for="entry in entries"
+        v-for="(entry, i) in entries"
         :key="entry.step_name + entry.start_time"
         :entry="entry"
+        :index="i"
         :min-ms="range.min"
         :span-ms="range.span"
         :is-critical="criticalPath.has(entry.step_name)"
-        :is-selected="selectedStep === entry.step_name"
+        :is-selected="selectedIndex === i"
         @click="emit('selectStep', $event)"
       />
     </div>

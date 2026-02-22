@@ -9,62 +9,64 @@ import type {
 
 const BASE = '/api'
 
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`)
+async function request<T>(path: string, method: 'GET' | 'POST' = 'GET'): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, method === 'POST' ? { method } : undefined)
   if (!res.ok) {
     throw new Error(`API ${res.status}: ${res.statusText}`)
   }
   return res.json()
 }
 
-async function post<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { method: 'POST' })
-  if (!res.ok) {
-    throw new Error(`API ${res.status}: ${res.statusText}`)
+/** Build a query string from a record, omitting null/undefined values. */
+function buildQuery(params: Record<string, string | number | boolean | undefined | null>): string {
+  const qs = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value != null && value !== '') qs.set(key, String(value))
   }
-  return res.json()
+  const s = qs.toString()
+  return s ? `?${s}` : ''
 }
 
 export const api = {
   listPipelines(): Promise<PipelineSummary[]> {
-    return get('/pipelines')
+    return request('/pipelines')
   },
 
   getPipeline(hash: string): Promise<PipelineSummary> {
-    return get(`/pipelines/${hash}`)
+    return request(`/pipelines/${hash}`)
   },
 
   listRuns(
     hash: string,
     params?: { status?: string; limit?: number; offset?: number }
   ): Promise<Run[]> {
-    const qs = new URLSearchParams()
-    if (params?.status) qs.set('status', params.status)
-    if (params?.limit) qs.set('limit', String(params.limit))
-    if (params?.offset) qs.set('offset', String(params.offset))
-    const q = qs.toString()
-    return get(`/pipelines/${hash}/runs${q ? '?' + q : ''}`)
+    const q = buildQuery({
+      status: params?.status,
+      limit: params?.limit,
+      offset: params?.offset,
+    })
+    return request(`/pipelines/${hash}/runs${q}`)
   },
 
   getRun(id: string): Promise<Run> {
-    return get(`/runs/${id}`)
+    return request(`/runs/${id}`)
   },
 
   getEvents(runId: string, type?: string): Promise<PipelineEvent[]> {
     const q = type ? `?type=${type}` : ''
-    return get(`/runs/${runId}/events${q}`)
+    return request(`/runs/${runId}/events${q}`)
   },
 
   getTimeline(runId: string): Promise<TimelineEntry[]> {
-    return get(`/runs/${runId}/timeline`)
+    return request(`/runs/${runId}/timeline`)
   },
 
   compare(run1: string, run2: string): Promise<Comparison> {
-    return get(`/compare?run1=${run1}&run2=${run2}`)
+    return request(`/compare?run1=${run1}&run2=${run2}`)
   },
 
   getStats(hash: string, days = 7): Promise<Stats> {
-    return get(`/stats/${hash}?days=${days}`)
+    return request(`/stats/${hash}?days=${days}`)
   },
 
   async exportRun(runId: string): Promise<{ run: Run; events: PipelineEvent[] }> {
@@ -73,19 +75,30 @@ export const api = {
   },
 
   searchRuns(prefix: string, limit = 10): Promise<Run[]> {
-    return get(`/runs/search?q=${encodeURIComponent(prefix)}&limit=${limit}`)
+    return request(`/runs/search?q=${encodeURIComponent(prefix)}&limit=${limit}`)
+  },
+
+  async health(): Promise<{ ok: boolean; timestamp: string | null; totalPipelines: number }> {
+    try {
+      const res = await fetch(`${BASE}/health`)
+      if (!res.ok) return { ok: false, timestamp: null, totalPipelines: 0 }
+      const data = await res.json()
+      return { ok: true, timestamp: data.timestamp ?? null, totalPipelines: data.total_pipelines ?? 0 }
+    } catch {
+      return { ok: false, timestamp: null, totalPipelines: 0 }
+    }
   },
 
   cleanupRuns(
     hash: string,
     params: { older_than_days?: number; status?: string; keep?: number; dry_run?: boolean }
   ): Promise<{ count: number; runs: Run[] }> {
-    const qs = new URLSearchParams()
-    if (params.older_than_days != null) qs.set('older_than_days', String(params.older_than_days))
-    if (params.status) qs.set('status', params.status)
-    if (params.keep != null) qs.set('keep', String(params.keep))
-    if (params.dry_run != null) qs.set('dry_run', String(params.dry_run))
-    const q = qs.toString()
-    return post(`/pipelines/${hash}/cleanup${q ? '?' + q : ''}`)
+    const q = buildQuery({
+      older_than_days: params.older_than_days,
+      status: params.status,
+      keep: params.keep,
+      dry_run: params.dry_run,
+    })
+    return request(`/pipelines/${hash}/cleanup${q}`, 'POST')
   },
 }

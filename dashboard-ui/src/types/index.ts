@@ -31,6 +31,7 @@ export interface PipelineSummary {
   success_rate: number
   avg_duration_seconds: number | null
   last_run_time: string | null
+  last_run_status?: string | null
   topology?: PipelineTopology | null
   visual_ast?: VisualASTData | null
 }

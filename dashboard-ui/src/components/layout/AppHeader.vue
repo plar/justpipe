@@ -1,12 +1,27 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { Factory, GitCompareArrows } from 'lucide-vue-next'
+import { Factory, Search } from 'lucide-vue-next'
+import { useCommandPalette } from '@/composables/useCommandPalette'
+import { useHealth } from '@/composables/useHealth'
+import { modKey } from '@/lib/platform'
 
 const route = useRoute()
+const { show: openSearch } = useCommandPalette()
+const { status: healthStatus, lastSeenAt } = useHealth()
+
+const healthLabel = computed(() => {
+  if (healthStatus.value === 'online') return 'Online'
+  if (healthStatus.value === 'checking') return 'Connecting...'
+  if (!lastSeenAt.value) return 'Offline'
+  const ago = Math.floor((Date.now() - new Date(lastSeenAt.value).getTime()) / 1000)
+  if (ago < 60) return `Offline ${ago}s`
+  if (ago < 3600) return `Offline ${Math.floor(ago / 60)}m`
+  return `Offline ${Math.floor(ago / 3600)}h`
+})
 
 const navItems = [
-  { to: '/', label: 'Fleet Command', icon: Factory },
-  { to: '/compare', label: 'Compare', icon: GitCompareArrows },
+  { to: '/', label: 'Pipelines', icon: Factory },
 ]
 </script>
 
@@ -46,10 +61,29 @@ const navItems = [
 
       <div class="flex-1" />
 
-      <!-- Status indicator -->
+      <!-- Search trigger -->
+      <button
+        class="flex items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+        @click="openSearch()"
+      >
+        <Search class="h-3.5 w-3.5" />
+        <span class="hidden sm:inline">Search</span>
+        <kbd class="hidden rounded border border-border bg-background px-1.5 py-px text-[10px] font-medium sm:inline">
+          {{ modKey }}K
+        </kbd>
+      </button>
+
+      <!-- Health indicator -->
       <div class="flex items-center gap-2 text-xs text-muted-foreground">
-        <span class="inline-block h-2 w-2 rounded-full bg-success pulse-glow" />
-        System Online
+        <span
+          class="inline-block h-2 w-2 rounded-full"
+          :class="{
+            'bg-success pulse-glow': healthStatus === 'online',
+            'bg-warning animate-pulse': healthStatus === 'checking',
+            'bg-destructive': healthStatus === 'offline',
+          }"
+        />
+        {{ healthLabel }}
       </div>
     </div>
   </header>

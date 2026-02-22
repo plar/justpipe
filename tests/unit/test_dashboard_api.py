@@ -106,7 +106,7 @@ class TestListRuns:
         self, api_env: tuple[DashboardAPI, SQLiteBackend]
     ) -> None:
         api, _ = api_env
-        result = api.list_runs("abc123", status=PipelineTerminalStatus.FAILED)
+        result = api.list_runs("abc123", statuses=[PipelineTerminalStatus.FAILED])
 
         assert result is not None
         assert len(result) == 1
@@ -222,3 +222,104 @@ class TestGetStats:
     def test_not_found(self, api_env: tuple[DashboardAPI, SQLiteBackend]) -> None:
         api, _ = api_env
         assert api.get_stats("nonexistent") is None
+
+
+class TestSearchRuns:
+    def test_prefix_search_finds_matching_runs(self, tmp_path: Path) -> None:
+        backend = _setup_pipeline(tmp_path, "h1", "pipe_a")
+        backend.save_run(make_run("run-abc-001"), [])
+        backend.save_run(make_run("run-abc-002"), [])
+        backend.save_run(make_run("run-xyz-001"), [])
+        api = DashboardAPI(PipelineRegistry(tmp_path))
+
+        results = api.search_runs("run-abc")
+        assert len(results) == 2
+        assert all("run-abc" in r["run_id"] for r in results)
+
+    def test_no_match_returns_empty(self, api_env: tuple[DashboardAPI, SQLiteBackend]) -> None:
+        api, _ = api_env
+        assert api.search_runs("nonexistent-prefix") == []
+
+    def test_limit_respected(self, tmp_path: Path) -> None:
+        backend = _setup_pipeline(tmp_path, "h1", "pipe_a")
+        for i in range(5):
+            backend.save_run(make_run(f"run-{i}"), [])
+        api = DashboardAPI(PipelineRegistry(tmp_path))
+
+        results = api.search_runs("run-", limit=2)
+        assert len(results) == 2
+
+    def test_results_sorted_by_start_time_descending(self, tmp_path: Path) -> None:
+        backend = _setup_pipeline(tmp_path, "h1", "pipe_a")
+        backend.save_run(
+            make_run("run-old", start_time=datetime(2025, 1, 1, 10, 0, 0, tzinfo=timezone.utc)),
+            [],
+        )
+        backend.save_run(
+            make_run("run-new", start_time=datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)),
+            [],
+        )
+        api = DashboardAPI(PipelineRegistry(tmp_path))
+
+        results = api.search_runs("run-")
+        assert results[0]["run_id"] == "run-new"
+        assert results[1]["run_id"] == "run-old"
+
+
+class TestCleanupRuns:
+    def test_dry_run_returns_preview_without_deleting(
+        self, api_env: tuple[DashboardAPI, SQLiteBackend]
+    ) -> None:
+        api, backend = api_env
+        result = api.cleanup_runs("abc123", keep=0, dry_run=True)
+
+        assert result is not None
+        assert result["count"] == 2
+        # Runs should still exist
+        assert len(backend.list_runs()) == 2
+
+    def test_actual_delete_removes_runs(
+        self, api_env: tuple[DashboardAPI, SQLiteBackend]
+    ) -> None:
+        api, backend = api_env
+        result = api.cleanup_runs("abc123", keep=0, dry_run=False)
+
+        assert result is not None
+        assert result["count"] == 2
+        assert len(backend.list_runs()) == 0
+
+    def test_not_found_returns_none(
+        self, api_env: tuple[DashboardAPI, SQLiteBackend]
+    ) -> None:
+        api, _ = api_env
+        assert api.cleanup_runs("nonexistent") is None
+
+    def test_status_filter(self, api_env: tuple[DashboardAPI, SQLiteBackend]) -> None:
+        api, backend = api_env
+        result = api.cleanup_runs(
+            "abc123", status=PipelineTerminalStatus.FAILED, keep=0, dry_run=False
+        )
+
+        assert result is not None
+        assert result["count"] == 1
+        # Only the failed run should be deleted, success run remains
+        remaining = backend.list_runs()
+        assert len(remaining) == 1
+        assert remaining[0].status == PipelineTerminalStatus.SUCCESS
+
+    def test_keep_n_most_recent(self, tmp_path: Path) -> None:
+        now = datetime.now(tz=timezone.utc)
+        backend = _setup_pipeline(tmp_path, "h1", "pipe_a")
+        for i in range(5):
+            backend.save_run(
+                make_run(f"r{i}", start_time=now - timedelta(hours=i)),
+                [],
+            )
+        api = DashboardAPI(PipelineRegistry(tmp_path))
+
+        result = api.cleanup_runs("h1", keep=2, dry_run=False)
+
+        assert result is not None
+        assert result["count"] == 3
+        remaining = backend.list_runs()
+        assert len(remaining) == 2

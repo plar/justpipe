@@ -5,6 +5,7 @@ import { formatDuration, formatTimestamp } from '@/lib/utils'
 
 const props = defineProps<{
   entry: TimelineEntry
+  index: number
   minMs: number
   spanMs: number
   isCritical: boolean
@@ -12,7 +13,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  click: [stepName: string]
+  click: [index: number]
 }>()
 
 const hovered = ref(false)
@@ -40,10 +41,7 @@ const barColor = computed(() => {
   }
 })
 
-const glowClass = computed(() => {
-  if (!props.isCritical) return ''
-  return 'glow-warn'
-})
+const glowClass = computed(() => props.isCritical ? 'glow-warn' : '')
 </script>
 
 <template>
@@ -54,7 +52,7 @@ const glowClass = computed(() => {
         ? 'border-primary/40 bg-primary/5'
         : 'border-border bg-card hover:bg-accent/20',
     ]"
-    @click="emit('click', entry.step_name)"
+    @click="emit('click', index)"
     @mouseenter="hovered = true"
     @mouseleave="hovered = false"
   >

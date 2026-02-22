@@ -1,65 +1,29 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import type { ProcessedStep } from '@/lib/event-processor'
+import { statusBadgeVariant } from '@/lib/view-helpers'
+import { useSetToggle } from '@/composables/useSetToggle'
 import Badge from '@/components/ui/Badge.vue'
 import StatusIndicator from '@/components/ui/StatusIndicator.vue'
-import JsonViewer from '@/components/ui/JsonViewer.vue'
-import { Copy, Check } from 'lucide-vue-next'
+import DataViewer from '@/components/ui/DataViewer.vue'
 
 const props = defineProps<{
   steps: ProcessedStep[]
 }>()
 
 const filter = ref('')
-const expandedSteps = ref<Set<string>>(new Set())
-const copiedStep = ref<string | null>(null)
+const expandedSteps = useSetToggle()
 
-const stepsWithPayloads = computed(() => {
-  return props.steps.filter(
-    (s) => s.inputPayload !== null || s.outputPayload !== null
-  )
-})
+const stepsWithPayloads = computed(() =>
+  props.steps.filter((s) => s.inputPayload !== null || s.outputPayload !== null)
+)
 
 const filteredSteps = computed(() => {
   const q = filter.value.trim().toLowerCase()
   if (!q) return stepsWithPayloads.value
-  return stepsWithPayloads.value.filter((s) =>
-    s.name.toLowerCase().includes(q)
-  )
+  return stepsWithPayloads.value.filter((s) => s.name.toLowerCase().includes(q))
 })
 
-function statusVariant(s: string): 'success' | 'destructive' | 'warning' | 'muted' {
-  switch (s) {
-    case 'success': return 'success'
-    case 'failed': return 'destructive'
-    case 'running': return 'warning'
-    default: return 'muted'
-  }
-}
-
-function toggleStep(name: string) {
-  if (expandedSteps.value.has(name)) {
-    expandedSteps.value.delete(name)
-  } else {
-    expandedSteps.value.add(name)
-  }
-}
-
-async function copyPayload(step: ProcessedStep) {
-  const payload: Record<string, unknown> = {}
-  if (step.inputPayload) payload.input = step.inputPayload
-  if (step.outputPayload) payload.output = step.outputPayload
-
-  try {
-    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
-    copiedStep.value = step.name
-    setTimeout(() => {
-      copiedStep.value = null
-    }, 2000)
-  } catch {
-    // Clipboard API may be unavailable in some contexts
-  }
-}
 </script>
 
 <template>
@@ -94,7 +58,7 @@ async function copyPayload(step: ProcessedStep) {
         <!-- Card header -->
         <button
           class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/30"
-          @click="toggleStep(step.name)"
+          @click="expandedSteps.toggle(step.name)"
         >
           <!-- Expand/collapse chevron -->
           <svg
@@ -113,20 +77,9 @@ async function copyPayload(step: ProcessedStep) {
           <span class="font-mono text-sm font-medium text-foreground">{{ step.name }}</span>
 
           <Badge v-if="step.kind" variant="muted">{{ step.kind }}</Badge>
-          <Badge :variant="statusVariant(step.status)">{{ step.status }}</Badge>
+          <Badge :variant="statusBadgeVariant(step.status)">{{ step.status }}</Badge>
 
-          <!-- Spacer -->
           <span class="flex-1" />
-
-          <!-- Copy button -->
-          <span
-            class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="Copy payload JSON"
-            @click.stop="copyPayload(step)"
-          >
-            <Check v-if="copiedStep === step.name" class="h-4 w-4 text-success" />
-            <Copy v-else class="h-4 w-4" />
-          </span>
         </button>
 
         <!-- Expanded content -->
@@ -137,7 +90,7 @@ async function copyPayload(step: ProcessedStep) {
               <h4 class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Input
               </h4>
-              <JsonViewer v-if="step.inputPayload" :data="step.inputPayload" />
+              <DataViewer v-if="step.inputPayload" :data="step.inputPayload" />
               <p v-else class="text-xs text-muted-foreground">No input payload captured</p>
             </div>
 
@@ -146,7 +99,7 @@ async function copyPayload(step: ProcessedStep) {
               <h4 class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Output
               </h4>
-              <JsonViewer v-if="step.outputPayload" :data="step.outputPayload" />
+              <DataViewer v-if="step.outputPayload" :data="step.outputPayload" />
               <p v-else class="text-xs text-muted-foreground">No output payload captured</p>
             </div>
           </div>

@@ -87,36 +87,24 @@ async def test_switch_no_match_no_default() -> None:
     assert "matches no route" in str(events[0].payload)
 
 
-async def test_switch_returns_stop() -> None:
+@pytest.mark.parametrize(
+    "route",
+    [
+        pytest.param({"stop": Stop}, id="dict"),
+        pytest.param(lambda x: Stop, id="callable"),
+    ],
+)
+async def test_switch_returns_stop(route: Any) -> None:
+    """Routing to Stop via dict or callable finishes without error."""
     pipe: Pipe[Any, Any] = Pipe()
 
-    @pipe.switch("switch", to={"stop": Stop})
+    @pipe.switch("switch", to=route)
     async def switch() -> str:
         return "stop"
 
-    events = []
-    async for ev in pipe.run(None):
-        events.append(ev)
-
-    # Should finish successfully when routing to Stop
-    assert any(e.type == EventType.FINISH for e in events)
-    # Should not have any errors
-    assert not any(e.type == EventType.STEP_ERROR for e in events)
-
-
-async def test_switch_callable_returns_stop() -> None:
-    pipe: Pipe[Any, Any] = Pipe()
-
-    @pipe.switch("switch", to=lambda x: Stop)
-    async def switch() -> str:
-        return "ignored"
-
-    # Should run without error and stop
     events = [e async for e in pipe.run(None)]
 
-    # Should finish successfully
     assert any(e.type == EventType.FINISH for e in events)
-    # Should not have any errors
     assert not any(e.type == EventType.STEP_ERROR for e in events)
 
 

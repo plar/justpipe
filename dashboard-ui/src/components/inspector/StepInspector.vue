@@ -3,11 +3,13 @@ import { ref, computed } from 'vue'
 import type { PipelineEvent } from '@/types'
 import type { ProcessedStep } from '@/lib/event-processor'
 import { formatDuration, formatTimestamp } from '@/lib/utils'
+import { statusBadgeVariant } from '@/lib/view-helpers'
 import TabBar from '@/components/ui/TabBar.vue'
 import Badge from '@/components/ui/Badge.vue'
 import StatusIndicator from '@/components/ui/StatusIndicator.vue'
 import DataTable from '@/components/ui/DataTable.vue'
-import JsonViewer from '@/components/ui/JsonViewer.vue'
+import DataViewer from '@/components/ui/DataViewer.vue'
+import MetaViewer from '@/components/ui/MetaViewer.vue'
 import Sidebar from './Sidebar.vue'
 
 const props = defineProps<{
@@ -47,21 +49,10 @@ const overviewRows = computed(() => {
   if (props.step.error) {
     rows.push({ key: 'Error', value: props.step.error })
   }
-  // Add meta entries
-  for (const [k, v] of Object.entries(props.step.meta)) {
-    rows.push({ key: `meta.${k}`, value: v })
-  }
   return rows
 })
 
-function statusVariant(s: string): 'success' | 'destructive' | 'warning' | 'muted' {
-  switch (s) {
-    case 'success': return 'success'
-    case 'failed': return 'destructive'
-    case 'running': return 'warning'
-    default: return 'muted'
-  }
-}
+const hasMeta = computed(() => props.step && Object.keys(props.step.meta).length > 0)
 </script>
 
 <template>
@@ -71,7 +62,7 @@ function statusVariant(s: string): 'success' | 'destructive' | 'warning' | 'mute
       <div class="mb-4 flex items-center gap-2">
         <StatusIndicator :status="step.status" size="md" />
         <span class="font-mono text-sm font-medium text-foreground">{{ step.name }}</span>
-        <Badge :variant="statusVariant(step.status)">{{ step.status }}</Badge>
+        <Badge :variant="statusBadgeVariant(step.status)">{{ step.status }}</Badge>
       </div>
 
       <!-- Tabs -->
@@ -82,6 +73,13 @@ function statusVariant(s: string): 'success' | 'destructive' | 'warning' | 'mute
       <!-- Overview tab -->
       <div v-if="activeTab === 'overview'">
         <DataTable :rows="overviewRows" />
+        <MetaViewer
+          v-if="hasMeta"
+          :meta="step.meta"
+          collapsible
+          default-expanded
+          class="mt-4"
+        />
       </div>
 
       <!-- Events tab -->
@@ -102,7 +100,7 @@ function statusVariant(s: string): 'success' | 'destructive' | 'warning' | 'mute
               </div>
               <span class="text-[10px] text-muted-foreground">{{ formatTimestamp(event.timestamp) }}</span>
             </div>
-            <JsonViewer v-if="event.data" :data="event.data" max-height="150px" />
+            <DataViewer v-if="event.data" :data="(event.data as Record<string, unknown>)" max-height="150px" />
           </div>
         </div>
       </div>
@@ -112,12 +110,12 @@ function statusVariant(s: string): 'success' | 'destructive' | 'warning' | 'mute
         <div class="space-y-4">
           <div>
             <h4 class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Input</h4>
-            <JsonViewer v-if="step.inputPayload" :data="step.inputPayload" />
+            <DataViewer v-if="step.inputPayload" :data="step.inputPayload" />
             <p v-else class="text-xs text-muted-foreground">No input payload captured</p>
           </div>
           <div>
             <h4 class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Output</h4>
-            <JsonViewer v-if="step.outputPayload" :data="step.outputPayload" />
+            <DataViewer v-if="step.outputPayload" :data="step.outputPayload" />
             <p v-else class="text-xs text-muted-foreground">No output payload captured</p>
           </div>
         </div>

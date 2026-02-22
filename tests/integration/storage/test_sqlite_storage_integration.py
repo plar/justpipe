@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 import tempfile
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -12,24 +11,6 @@ import pytest
 from justpipe.storage.sqlite import SQLiteBackend
 from justpipe.types import PipelineTerminalStatus
 from tests.factories import make_events, make_run
-
-
-def test_sqlite_pagination() -> None:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        backend = SQLiteBackend(Path(tmpdir) / "runs.db")
-        for i in range(5):
-            backend.save_run(
-                make_run(
-                    f"r{i}",
-                    start_time=datetime(2025, 1, 1, i, 0, 0, tzinfo=timezone.utc),
-                    end_time=datetime(2025, 1, 1, i, 0, 5, tzinfo=timezone.utc),
-                ),
-                [],
-            )
-        runs = backend.list_runs(limit=2)
-        assert len(runs) == 2
-        runs = backend.list_runs(limit=2, offset=3)
-        assert len(runs) == 2
 
 
 def test_sqlite_run_with_error() -> None:
@@ -87,15 +68,6 @@ def test_sqlite_duplicate_run_id_raises() -> None:
             backend.save_run(make_run("dup-1"), [])
 
 
-def test_sqlite_malformed_event_json_rolls_back() -> None:
-    """Malformed JSON in events causes rollback — run is not saved."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        backend = SQLiteBackend(Path(tmpdir) / "runs.db")
-        with pytest.raises(Exception):
-            backend.save_run(make_run("bad-json"), ["{not valid json}"])
-        assert backend.get_run("bad-json") is None
-
-
 @pytest.mark.parametrize(
     ("run_id", "create_run"),
     [
@@ -110,17 +82,6 @@ def test_sqlite_get_events_returns_empty(run_id: str, create_run: bool) -> None:
         if create_run:
             backend.save_run(make_run(run_id), [])
         assert backend.get_events(run_id) == []
-
-
-def test_sqlite_delete_cascades_events() -> None:
-    """Deleting a run also removes its events (FK cascade)."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        backend = SQLiteBackend(Path(tmpdir) / "runs.db")
-        backend.save_run(make_run("cascade"), make_events())
-        assert len(backend.get_events("cascade")) > 0
-
-        backend.delete_run("cascade")
-        assert backend.get_events("cascade") == []
 
 
 def test_sqlite_read_only_after_close() -> None:

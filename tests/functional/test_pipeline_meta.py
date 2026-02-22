@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import pytest
 
 from justpipe import EventType, Meta, Pipe
 from justpipe.types import Event
@@ -141,51 +142,26 @@ class TestMetaParallelIsolation:
 
 
 class TestNoMetaUnchanged:
-    async def test_pipeline_without_meta_runs_normally(self) -> None:
-        pipe: Pipe[None, PlainContext] = Pipe(context_type=PlainContext, name="test")
-
-        @pipe.step()
-        async def my_step(state: None, ctx: PlainContext) -> None:
-            ctx.val = 42
-
-        ctx = PlainContext()
-        finish_event: Event | None = None
-        async for event in pipe.run(None, ctx):
-            if event.type == EventType.FINISH:
-                finish_event = event
-
-        assert finish_event is not None
-        assert finish_event.meta is None
-        assert ctx.val == 42
-
-    async def test_pipeline_no_context(self) -> None:
-        pipe: Pipe[None, None] = Pipe(name="test")
+    @pytest.mark.parametrize(
+        ("context_type", "context_value"),
+        [
+            pytest.param(PlainContext, PlainContext(), id="PlainContext"),
+            pytest.param(type(None), None, id="None"),
+            pytest.param(MetaContext, MetaContext(), id="MetaContext-unused"),
+        ],
+    )
+    async def test_finish_meta_is_none_without_writes(
+        self, context_type: type, context_value: Any
+    ) -> None:
+        """FINISH Event.meta is None when no meta writes occur."""
+        pipe: Pipe[None, Any] = Pipe(context_type=context_type, name="test")
 
         @pipe.step()
         async def my_step(state: None) -> None:
             pass
 
         finish_event: Event | None = None
-        async for event in pipe.run(None):
-            if event.type == EventType.FINISH:
-                finish_event = event
-
-        assert finish_event is not None
-        assert finish_event.meta is None
-
-
-class TestMetaEmptySnapshot:
-    async def test_meta_unused_returns_none(self) -> None:
-        """If Meta is declared but never written to, FINISH Event.meta should be None."""
-        pipe: Pipe[None, MetaContext] = Pipe(context_type=MetaContext, name="test")
-
-        @pipe.step()
-        async def my_step(state: None, ctx: MetaContext) -> None:
-            pass  # No meta writes
-
-        ctx = MetaContext()
-        finish_event: Event | None = None
-        async for event in pipe.run(None, ctx):
+        async for event in pipe.run(None, context_value):
             if event.type == EventType.FINISH:
                 finish_event = event
 

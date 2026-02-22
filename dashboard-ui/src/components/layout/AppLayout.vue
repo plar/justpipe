@@ -3,8 +3,10 @@ import AppHeader from './AppHeader.vue'
 </script>
 
 <template>
-  <div class="min-h-screen grid-bg">
-    <AppHeader />
+  <div class="min-h-screen">
+    <div class="grid-bg">
+      <AppHeader />
+    </div>
     <main class="mx-auto max-w-7xl px-6 py-6">
       <slot />
     </main>

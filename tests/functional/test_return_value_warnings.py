@@ -42,13 +42,20 @@ async def test_return_value_triggers_warning(
         assert expected_type_name in str(w[0].message)
 
 
-async def test_return_none_no_warning() -> None:
-    """Test that returning None does not trigger a warning."""
+@pytest.mark.parametrize(
+    "return_value",
+    [
+        pytest.param(None, id="None"),
+        pytest.param(Stop, id="Stop"),
+    ],
+)
+async def test_return_routing_value_no_warning(return_value: Any) -> None:
+    """Returning None or Stop does not trigger a warning."""
     pipe: Pipe[Any, Any] = Pipe()
 
     @pipe.step()
-    async def good_step(state: Any) -> None:
-        return None
+    async def good_step(state: Any) -> Any:
+        return return_value
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
@@ -75,23 +82,6 @@ async def test_return_string_no_warning() -> None:
         warnings.simplefilter("always")
 
         async for _ in pipe.run(None, start="start"):
-            pass
-
-        assert len(w) == 0
-
-
-async def test_return_stop_no_warning() -> None:
-    """Test that returning Stop does not trigger a warning."""
-    pipe: Pipe[Any, Any] = Pipe()
-
-    @pipe.step()
-    async def stop_step(state: Any) -> Any:
-        return Stop
-
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-
-        async for _ in pipe.run(None):
             pass
 
         assert len(w) == 0

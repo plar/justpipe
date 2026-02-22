@@ -61,6 +61,7 @@ def serialize_pipeline(info: PipelineInfo, runs: list[RunRecord]) -> dict[str, A
     avg_duration = sum(durations) / len(durations) if durations else None
 
     last_run_time = runs[0].start_time.isoformat() if runs else None
+    last_run_status = runs[0].status.value if runs else None
 
     return {
         "name": info.name,
@@ -70,6 +71,7 @@ def serialize_pipeline(info: PipelineInfo, runs: list[RunRecord]) -> dict[str, A
         "success_rate": round(success_rate, 1),
         "avg_duration_seconds": round(avg_duration, 3) if avg_duration else None,
         "last_run_time": last_run_time,
+        "last_run_status": last_run_status,
     }
 
 
