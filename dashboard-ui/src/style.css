@@ -169,6 +169,12 @@
   .pulse-glow {
     animation: pulse-glow 2s ease-in-out infinite;
   }
+
+  /* Horizontal scroll container for tables on narrow viewports */
+  .table-scroll-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 /* ── Keyframes ─────────────────────────────────────────────── */

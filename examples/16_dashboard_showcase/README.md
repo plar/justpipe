@@ -21,8 +21,10 @@ uv run python examples/16_dashboard_showcase/main.py
 Then launch the dashboard:
 
 ```bash
-JUSTPIPE_STORAGE_PATH=/tmp/justpipe_showcase uv run justpipe dashboard
+uv run justpipe dashboard
 ```
+
+Data is stored in `~/.justpipe` by default. To use a different location, set `JUSTPIPE_STORAGE_PATH` env variable.
 
 ## Expected Output
 

@@ -6,7 +6,10 @@ import { shortId, relativeTime } from '@/lib/utils'
 import StatusIndicator from './StatusIndicator.vue'
 import Badge from './Badge.vue'
 import { statusBadgeVariant } from '@/lib/view-helpers'
+import { useToast } from '@/composables/useToast'
 import { Trash2, X, AlertTriangle } from 'lucide-vue-next'
+
+const { toast } = useToast()
 
 const props = defineProps<{
   pipelineHash: string
@@ -40,6 +43,7 @@ async function preview() {
   error.value = ''
   previewResult.value = null
   deleteResult.value = null
+  confirmText.value = ''
   try {
     previewResult.value = await api.cleanupRuns(props.pipelineHash, {
       older_than_days: olderThanDays.value,
@@ -68,8 +72,11 @@ async function confirmDelete() {
     deleteResult.value = result.count
     previewResult.value = null
     emit('cleaned', result.count)
+    toast(`Cleaned up ${result.count} run(s)`, 'success')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    const msg = e instanceof Error ? e.message : String(e)
+    error.value = msg
+    toast(msg, 'error')
   } finally {
     loading.value = false
   }
@@ -80,7 +87,14 @@ function close() {
   emit('close')
 }
 
+const confirmText = ref('')
 const canPreview = computed(() => !loading.value)
+const canDelete = computed(() =>
+  previewResult.value !== null &&
+  previewResult.value.count > 0 &&
+  !loading.value &&
+  confirmText.value === 'delete'
+)
 </script>
 
 <template>
@@ -154,7 +168,7 @@ const canPreview = computed(() => !loading.value)
           <div v-else>
             <div class="flex items-center gap-2 text-sm">
               <AlertTriangle class="h-4 w-4 text-warning" />
-              <span class="font-medium text-foreground">{{ previewResult.count }} run(s) will be deleted</span>
+              <span class="font-medium text-foreground">{{ previewResult.count }} run(s) will be permanently deleted</span>
             </div>
             <div class="mt-2 max-h-40 overflow-y-auto rounded-md border border-border">
               <div
@@ -167,6 +181,17 @@ const canPreview = computed(() => !loading.value)
                 <Badge :variant="statusBadgeVariant(run.status)" class="text-[10px]">{{ run.status }}</Badge>
                 <span class="ml-auto text-muted-foreground">{{ relativeTime(run.start_time) }}</span>
               </div>
+            </div>
+            <div class="mt-3">
+              <label class="mb-1 block text-xs text-muted-foreground">
+                Type <strong class="text-foreground">delete</strong> to confirm (this cannot be undone)
+              </label>
+              <input
+                v-model="confirmText"
+                type="text"
+                placeholder="delete"
+                class="w-full rounded-md border border-border bg-input px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-destructive/50 focus:outline-none focus:ring-1 focus:ring-destructive/30"
+              />
             </div>
           </div>
         </div>
@@ -195,7 +220,7 @@ const canPreview = computed(() => !loading.value)
           <button
             v-else
             class="rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
-            :disabled="loading"
+            :disabled="!canDelete"
             @click="confirmDelete"
           >
             {{ loading ? 'Deleting...' : `Delete ${previewResult.count} runs` }}

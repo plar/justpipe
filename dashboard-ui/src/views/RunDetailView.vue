@@ -6,10 +6,11 @@ import { useReplayStore } from '@/stores/replay'
 import { formatDuration, formatTimestamp, shortId } from '@/lib/utils'
 import { statusBadgeVariant } from '@/lib/view-helpers'
 import { useKeyboard } from '@/composables/useKeyboard'
-import type { StepTiming, BarrierMetrics, PipelineSummary } from '@/types'
+import { usePolling } from '@/composables/usePolling'
+import { processInvocationEvents } from '@/lib/event-processor'
 import { api } from '@/api/client'
+import type { PipelineSummary } from '@/types'
 import TabBar from '@/components/ui/TabBar.vue'
-import MetricTile from '@/components/ui/MetricTile.vue'
 import StatusIndicator from '@/components/ui/StatusIndicator.vue'
 import Badge from '@/components/ui/Badge.vue'
 import LoadingState from '@/components/ui/LoadingState.vue'
@@ -23,8 +24,14 @@ import DagCanvasPixi from '@/components/dag/DagCanvasPixi.vue'
 import DagLegend from '@/components/dag/DagLegend.vue'
 import ReplayControls from '@/components/replay/ReplayControls.vue'
 import ArtifactBrowser from '@/components/artifacts/ArtifactBrowser.vue'
-import { ArrowLeft, ChevronRight, GitCompareArrows, Download } from 'lucide-vue-next'
+import RunEventsTab from '@/components/run/RunEventsTab.vue'
+import RunMetricsTab from '@/components/run/RunMetricsTab.vue'
+import { useToast } from '@/composables/useToast'
+import Breadcrumb from '@/components/ui/Breadcrumb.vue'
+import MetaViewer from '@/components/ui/MetaViewer.vue'
+import { ChevronRight, GitCompareArrows, Download } from 'lucide-vue-next'
 
+const { toast } = useToast()
 const route = useRoute()
 const router = useRouter()
 const runStore = useRunStore()
@@ -32,106 +39,60 @@ const replay = useReplayStore()
 
 const runId = computed(() => route.params.id as string)
 const activeTab = ref((route.query.tab as string) || 'timeline')
-const expandedEvents = ref<Set<number>>(new Set())
-const selectedStep = ref<string | null>(null)
+const selectedStepIndex = ref<number | null>(null)
+const showArtifacts = ref(false)
+
+// Auto-refresh for in-progress runs
+const TERMINAL_STATUSES = new Set(['success', 'failed', 'timeout', 'cancelled', 'client_closed'])
+const isTerminal = computed(() => {
+  const status = runStore.run?.status
+  return !status || TERMINAL_STATUSES.has(status)
+})
+const polling = usePolling(() => runStore.refreshRun(runId.value), 3000)
+
+function startPolling() {
+  if (!isTerminal.value) polling.start()
+}
+
+watch(isTerminal, (terminal) => {
+  if (terminal) polling.stop()
+})
 
 // Replay state
 const replayPipeline = ref<PipelineSummary | null>(null)
 const replayLoading = ref(false)
 
-const tabs = [
+const tabs = computed(() => [
   { key: 'timeline', label: 'Timeline' },
-  { key: 'events', label: 'Events' },
+  { key: 'events', label: 'Events', count: runStore.events.length || null },
   { key: 'metrics', label: 'Metrics' },
   { key: 'replay', label: 'Replay' },
-  { key: 'artifacts', label: 'Artifacts' },
-  { key: 'meta', label: 'Meta' },
-]
+])
 
 // Keyboard shortcuts
 useKeyboard({
-  tabKeys: tabs.map((t) => t.key),
+  tabKeys: ['timeline', 'events', 'metrics', 'replay'],
   onTab: (key) => { switchTab(key) },
-  onEscape: () => { selectedStep.value = null },
+  onEscape: () => { selectedStepIndex.value = null },
 })
 
-// Metrics helpers
-const metrics = computed(() => runStore.runtimeMetrics)
+// Inspector data — index-based to handle duplicate step names
+const inspectorOpen = computed(() => selectedStepIndex.value !== null)
 
-const stepLatencyRows = computed(() => {
-  if (!metrics.value?.step_latency) return []
-  return Object.entries(metrics.value.step_latency)
-    .map(([name, t]: [string, StepTiming]) => ({
-      name,
-      count: t.count,
-      avg: t.count > 0 ? t.total_s / t.count : 0,
-      min: t.min_s,
-      max: t.max_s,
-    }))
-    .sort((a, b) => b.avg - a.avg)
-})
-
-const barrierRows = computed(() => {
-  if (!metrics.value?.barriers) return []
-  return Object.entries(metrics.value.barriers)
-    .map(([name, b]: [string, BarrierMetrics]) => ({ name, ...b }))
-})
-
-const eventTypeRows = computed(() => {
-  if (!metrics.value?.events) return []
-  return Object.entries(metrics.value.events)
-    .sort(([, a], [, b]) => b - a)
-})
-
-// Event type filter chips
-const eventTypeFilter = ref<Set<string>>(new Set())
-const EVENT_TYPE_ORDER: Record<string, number> = {
-  start: 0,
-  step_start: 1, step_end: 2, step_error: 3,
-  map_start: 4, map_worker: 5, map_complete: 6,
-  barrier_wait: 7, barrier_release: 8,
-  token: 9, suspend: 10, timeout: 11, cancelled: 12, finish: 13,
-}
-const eventTypes = computed(() => {
-  const types = new Set(runStore.events.map((e) => e.event_type))
-  return Array.from(types).sort((a, b) => (EVENT_TYPE_ORDER[a] ?? 99) - (EVENT_TYPE_ORDER[b] ?? 99))
-})
-const filteredEvents = computed(() => {
-  if (eventTypeFilter.value.size === 0) return runStore.events
-  return runStore.events.filter((e) => eventTypeFilter.value.has(e.event_type))
-})
-function toggleEventType(type: string) {
-  const next = new Set(eventTypeFilter.value)
-  if (next.has(type)) next.delete(type)
-  else next.add(type)
-  eventTypeFilter.value = next
-}
-
-// Inspector data
-const inspectorOpen = computed(() => selectedStep.value !== null)
-const inspectorStep = computed(() => {
-  if (!selectedStep.value) return null
-  return runStore.steps.find((s) => s.name === selectedStep.value) ?? null
-})
 const inspectorEvents = computed(() => {
-  if (!selectedStep.value) return []
-  return runStore.eventsForStep(selectedStep.value)
+  if (selectedStepIndex.value === null) return []
+  const entry = runStore.timeline[selectedStepIndex.value]
+  if (!entry) return []
+  const invocationIdx = runStore.timeline
+    .slice(0, selectedStepIndex.value)
+    .filter((e) => e.step_name === entry.step_name).length
+  return runStore.eventsForInvocation(entry.step_name, invocationIdx)
 })
 
-function selectStep(stepName: string) {
-  selectedStep.value = selectedStep.value === stepName ? null : stepName
-}
+const inspectorStep = computed(() => processInvocationEvents(inspectorEvents.value))
 
-function closeInspector() {
-  selectedStep.value = null
-}
-
-function toggleEvent(seq: number) {
-  if (expandedEvents.value.has(seq)) {
-    expandedEvents.value.delete(seq)
-  } else {
-    expandedEvents.value.add(seq)
-  }
+function selectStep(index: number) {
+  selectedStepIndex.value = selectedStepIndex.value === index ? null : index
 }
 
 function switchTab(tab: string) {
@@ -153,8 +114,9 @@ async function exportRun() {
     a.download = `run-${runId.value.slice(0, 12)}.json`
     a.click()
     URL.revokeObjectURL(url)
-  } catch {
-    // silently fail — non-critical
+    toast('Run exported', 'success')
+  } catch (e) {
+    toast(e instanceof Error ? e.message : 'Export failed', 'error')
   }
 }
 
@@ -174,14 +136,17 @@ watch(activeTab, (tab) => {
   if (tab === 'replay') loadReplayData()
 })
 
-onMounted(() => {
-  runStore.fetchRun(runId.value)
+onMounted(async () => {
+  await runStore.fetchRun(runId.value)
+  startPolling()
 })
 
-watch(runId, (newId) => {
-  runStore.fetchRun(newId)
+watch(runId, async (newId) => {
+  polling.stop()
+  await runStore.fetchRun(newId)
   replayPipeline.value = null
   replay.reset()
+  startPolling()
 })
 
 onBeforeUnmount(() => {
@@ -197,13 +162,11 @@ onBeforeUnmount(() => {
       <!-- Header -->
       <div class="mb-6">
         <div class="flex items-center justify-between">
-          <RouterLink
-            :to="`/pipeline/${runStore.run.pipeline_hash}`"
-            class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ArrowLeft class="h-3.5 w-3.5" />
-            {{ runStore.run.pipeline_name }}
-          </RouterLink>
+          <Breadcrumb :items="[
+            { label: 'Pipelines', to: '/' },
+            { label: runStore.run.pipeline_name, to: `/pipeline/${runStore.run.pipeline_hash}` },
+            { label: shortId(runStore.run.run_id) },
+          ]" />
           <div class="flex items-center gap-2">
             <button
               class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -225,16 +188,34 @@ onBeforeUnmount(() => {
         <div class="mt-2 flex items-center gap-3">
           <StatusIndicator :status="runStore.run.status" size="lg" :pulse="runStore.run.status === 'success'" />
           <h1 class="font-mono text-xl font-semibold text-foreground">
-            {{ shortId(runStore.run.run_id, 16) }}
+            {{ shortId(runStore.run.run_id) }}
           </h1>
           <Badge :variant="statusBadgeVariant(runStore.run.status)">{{ runStore.run.status }}</Badge>
+          <span v-if="!isTerminal" class="inline-flex items-center gap-1.5 text-xs text-emerald-500">
+            <span class="relative flex h-2 w-2">
+              <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+              <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+            </span>
+            Live
+          </span>
         </div>
 
-        <div class="mt-2 flex gap-6 text-sm text-muted-foreground">
+        <div class="mt-2 flex items-center gap-6 text-sm text-muted-foreground">
           <span>Started: {{ formatTimestamp(runStore.run.start_time) }}</span>
           <span v-if="runStore.run.end_time">Ended: {{ formatTimestamp(runStore.run.end_time) }}</span>
           <span>Duration: <strong class="text-foreground">{{ formatDuration(runStore.run.duration_seconds) }}</strong></span>
+          <span v-if="!isTerminal" class="text-xs text-muted-foreground/60">
+            Updated {{ polling.secondsSinceRefresh.value }}s ago
+          </span>
         </div>
+
+        <!-- Collapsible Meta -->
+        <MetaViewer
+          v-if="runStore.run.run_meta && Object.keys(runStore.run.run_meta).length > 0"
+          :meta="runStore.run.run_meta"
+          collapsible
+          class="mt-3"
+        />
       </div>
 
       <!-- Failure Autopsy -->
@@ -255,7 +236,7 @@ onBeforeUnmount(() => {
         <WaterfallTimeline
           :entries="runStore.timeline"
           :critical-path="runStore.criticalPath"
-          :selected-step="selectedStep"
+          :selected-index="selectedStepIndex"
           @select-step="selectStep"
         />
         <ConcurrencyChart
@@ -263,171 +244,28 @@ onBeforeUnmount(() => {
           :min-ms="runStore.timelineRange.min"
           :span-ms="runStore.timelineRange.span"
         />
+
+        <!-- Collapsible Artifacts -->
+        <div v-if="runStore.steps.some((s) => 'artifacts' in s)" class="mt-6">
+          <button
+            class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            @click="showArtifacts = !showArtifacts"
+          >
+            <ChevronRight class="h-3.5 w-3.5 transition-transform" :class="{ 'rotate-90': showArtifacts }" />
+            Artifacts
+          </button>
+          <div v-if="showArtifacts" class="mt-2">
+            <ArtifactBrowser :steps="runStore.steps" />
+          </div>
+        </div>
       </div>
 
       <!-- Events Tab -->
-      <div v-if="activeTab === 'events'">
-        <div class="mb-4 flex items-center gap-3">
-          <div class="flex flex-wrap gap-1.5 rounded-lg bg-muted/50 p-1.5">
-            <button
-              v-for="t in eventTypes"
-              :key="t"
-              class="rounded-md px-2.5 py-1 text-xs font-mono transition-colors"
-              :class="eventTypeFilter.has(t) ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
-              @click="toggleEventType(t)"
-            >
-              {{ t }}
-            </button>
-          </div>
-          <span class="text-xs text-muted-foreground whitespace-nowrap">
-            {{ filteredEvents.length }} event(s)<template v-if="eventTypeFilter.size > 0"> matching {{ eventTypeFilter.size }} filter(s)</template>
-          </span>
-          <button
-            v-if="eventTypeFilter.size > 0"
-            class="rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
-            @click="eventTypeFilter = new Set()"
-          >
-            Clear
-          </button>
-        </div>
-
-        <div class="divide-y divide-border overflow-hidden rounded-lg border border-border">
-          <div v-for="event in filteredEvents" :key="event.seq" class="text-sm">
-            <button
-              class="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-accent/30"
-              @click="toggleEvent(event.seq)"
-            >
-              <span class="w-8 text-right font-mono text-xs text-muted-foreground">{{ event.seq }}</span>
-              <Badge variant="muted">{{ event.event_type }}</Badge>
-              <span class="flex-1 truncate font-mono text-xs text-muted-foreground">
-                {{ event.step_name }}
-              </span>
-              <span class="text-xs text-muted-foreground">{{ formatTimestamp(event.timestamp) }}</span>
-              <ChevronRight
-                class="h-4 w-4 text-muted-foreground transition-transform"
-                :class="{ 'rotate-90': expandedEvents.has(event.seq) }"
-              />
-            </button>
-            <div
-              v-if="expandedEvents.has(event.seq)"
-              class="border-t border-border bg-muted/30 px-4 py-3"
-            >
-              <pre class="overflow-x-auto font-mono text-xs text-muted-foreground">{{ JSON.stringify(event.data, null, 2) }}</pre>
-            </div>
-          </div>
-          <div v-if="filteredEvents.length === 0" class="px-4 py-8 text-center text-sm text-muted-foreground">
-            No events found
-          </div>
-        </div>
-      </div>
+      <RunEventsTab v-if="activeTab === 'events'" />
 
       <!-- Metrics Tab -->
-      <div v-if="activeTab === 'metrics'">
-        <div v-if="!metrics" class="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">
-          No runtime metrics available for this run
-        </div>
-        <template v-else>
-          <!-- Summary tiles -->
-          <div class="mb-6 grid gap-4 sm:grid-cols-5 stagger-reveal">
-            <MetricTile label="Tasks Started" :value="metrics.tasks.started" />
-            <MetricTile label="Peak Active" :value="metrics.tasks.peak_active" />
-            <MetricTile label="Tokens" :value="metrics.tokens" />
-            <MetricTile label="Peak Queue" :value="metrics.queue.max_depth" />
-            <MetricTile label="Suspends" :value="metrics.suspends" />
-          </div>
-
-          <!-- Step Latency table -->
-          <div v-if="stepLatencyRows.length" class="mb-6 overflow-hidden rounded-lg border border-border">
-            <h4 class="border-l-2 border-primary/40 pl-3 border-b border-border bg-card px-4 py-3 text-sm font-medium text-foreground">Step Latency</h4>
-            <table class="w-full text-sm">
-              <thead class="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
-                <tr>
-                  <th class="px-4 py-2 font-medium">Step</th>
-                  <th class="px-4 py-2 text-right font-medium">Count</th>
-                  <th class="px-4 py-2 text-right font-medium">Avg</th>
-                  <th class="px-4 py-2 text-right font-medium">Min</th>
-                  <th class="px-4 py-2 text-right font-medium">Max</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-border">
-                <tr v-for="row in stepLatencyRows" :key="row.name" class="hover:bg-accent/20">
-                  <td class="px-4 py-2 font-mono text-xs">{{ row.name }}</td>
-                  <td class="px-4 py-2 text-right tabular-nums">{{ row.count }}</td>
-                  <td class="px-4 py-2 text-right font-mono text-xs tabular-nums">{{ formatDuration(row.avg) }}</td>
-                  <td class="px-4 py-2 text-right font-mono text-xs tabular-nums text-muted-foreground">{{ formatDuration(row.min) }}</td>
-                  <td class="px-4 py-2 text-right font-mono text-xs tabular-nums text-muted-foreground">{{ formatDuration(row.max) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Barrier Stats -->
-          <div v-if="barrierRows.length" class="mb-6 overflow-hidden rounded-lg border border-border">
-            <h4 class="border-l-2 border-primary/40 pl-3 border-b border-border bg-card px-4 py-3 text-sm font-medium text-foreground">Barrier Statistics</h4>
-            <table class="w-full text-sm">
-              <thead class="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
-                <tr>
-                  <th class="px-4 py-2 font-medium">Barrier</th>
-                  <th class="px-4 py-2 text-right font-medium">Waits</th>
-                  <th class="px-4 py-2 text-right font-medium">Releases</th>
-                  <th class="px-4 py-2 text-right font-medium">Timeouts</th>
-                  <th class="px-4 py-2 text-right font-medium">Max Wait</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-border">
-                <tr v-for="row in barrierRows" :key="row.name" class="hover:bg-accent/20">
-                  <td class="px-4 py-2 font-mono text-xs">{{ row.name }}</td>
-                  <td class="px-4 py-2 text-right tabular-nums">{{ row.waits }}</td>
-                  <td class="px-4 py-2 text-right tabular-nums">{{ row.releases }}</td>
-                  <td class="px-4 py-2 text-right tabular-nums" :class="row.timeouts > 0 ? 'text-warning' : ''">{{ row.timeouts }}</td>
-                  <td class="px-4 py-2 text-right font-mono text-xs tabular-nums">{{ formatDuration(row.max_wait_s) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Map Stats -->
-          <div v-if="metrics.maps.maps_started > 0" class="mb-6 rounded-lg border border-border bg-card p-4">
-            <h4 class="border-l-2 border-primary/40 pl-3 mb-3 text-sm font-medium text-foreground">Map Statistics</h4>
-            <div class="grid gap-4 sm:grid-cols-4">
-              <div>
-                <p class="text-xs uppercase tracking-wider text-muted-foreground">Maps Started</p>
-                <p class="text-lg font-semibold tabular-nums">{{ metrics.maps.maps_started }}</p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wider text-muted-foreground">Maps Completed</p>
-                <p class="text-lg font-semibold tabular-nums">{{ metrics.maps.maps_completed }}</p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wider text-muted-foreground">Workers Started</p>
-                <p class="text-lg font-semibold tabular-nums">{{ metrics.maps.workers_started }}</p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wider text-muted-foreground">Peak Workers</p>
-                <p class="text-lg font-semibold tabular-nums">{{ metrics.maps.peak_workers }}</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Event Type Breakdown -->
-          <div v-if="eventTypeRows.length" class="rounded-lg border border-border bg-card p-4">
-            <h4 class="border-l-2 border-primary/40 pl-3 mb-3 text-sm font-medium text-foreground">Event Type Breakdown</h4>
-            <div class="space-y-2">
-              <div v-for="[type, count] in eventTypeRows" :key="type" class="flex items-center gap-3">
-                <span class="w-32 truncate font-mono text-xs text-muted-foreground">{{ type }}</span>
-                <div class="flex-1">
-                  <div class="h-4 overflow-hidden rounded bg-muted">
-                    <div
-                      class="h-full rounded bg-info transition-all"
-                      :style="{ width: eventTypeRows.length ? (count / eventTypeRows[0]![1] * 100) + '%' : '0%' }"
-                    />
-                  </div>
-                </div>
-                <span class="w-10 text-right text-xs font-medium tabular-nums">{{ count }}</span>
-              </div>
-            </div>
-          </div>
-        </template>
+      <div v-show="activeTab === 'metrics'">
+        <RunMetricsTab />
       </div>
 
       <!-- Replay Tab -->
@@ -454,34 +292,12 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- Artifacts Tab -->
-      <div v-if="activeTab === 'artifacts'">
-        <ArtifactBrowser :steps="runStore.steps" />
-      </div>
-
-      <!-- Meta Tab -->
-      <div v-if="activeTab === 'meta'">
-        <div v-if="!runStore.run.run_meta || Object.keys(runStore.run.run_meta).length === 0" class="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">
-          No user metadata for this run
-        </div>
-        <div v-else class="rounded-lg border border-border bg-card">
-          <div
-            v-for="(value, key) in runStore.run.run_meta"
-            :key="String(key)"
-            class="flex items-start gap-4 border-b border-border px-4 py-3 last:border-0"
-          >
-            <span class="w-40 shrink-0 font-mono text-xs text-muted-foreground">{{ key }}</span>
-            <pre class="flex-1 overflow-x-auto font-mono text-xs text-foreground">{{ typeof value === 'object' ? JSON.stringify(value, null, 2) : value }}</pre>
-          </div>
-        </div>
-      </div>
-
       <!-- Step Inspector Sidebar -->
       <StepInspector
         :open="inspectorOpen"
         :step="inspectorStep"
         :events="inspectorEvents"
-        @close="closeInspector"
+        @close="selectedStepIndex = null"
       />
     </template>
   </div>

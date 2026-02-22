@@ -8,6 +8,7 @@ import { formatDuration, shortId, formatTimestamp } from '@/lib/utils'
 import { statusBadgeVariant } from '@/lib/view-helpers'
 import { usePipelinesStore } from '@/stores/pipelines'
 import { useUiStore } from '@/stores/ui'
+import { useSetToggle } from '@/composables/useSetToggle'
 import DagErrorBoundary from '@/components/dag/DagErrorBoundary.vue'
 import DagCanvasPixi from '@/components/dag/DagCanvasPixi.vue'
 import DagLegend from '@/components/dag/DagLegend.vue'
@@ -21,7 +22,9 @@ import LoadingState from '@/components/ui/LoadingState.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import Sparkline from '@/components/ui/Sparkline.vue'
 import CleanupDialog from '@/components/ui/CleanupDialog.vue'
-import { ArrowLeft, Trash2, GitCompareArrows } from 'lucide-vue-next'
+import Breadcrumb from '@/components/ui/Breadcrumb.vue'
+import SectionHeader from '@/components/ui/SectionHeader.vue'
+import { Trash2, GitCompareArrows } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
@@ -31,9 +34,21 @@ const hash = computed(() => route.params.hash as string)
 
 const loading = ref(true)
 const error = ref('')
-const activeTab = ref((route.query.tab as string) || 'dag')
-const statusFilter = ref('')
+const activeTab = ref((route.query.tab as string) || 'runs')
+const STATUS_OPTIONS = ['success', 'failed', 'timeout', 'cancelled'] as const
+const statusFilter = useSetToggle(
+  route.query.status ? (route.query.status as string).split(',') : []
+)
 const stepStatuses = ref<Record<string, string>>({})
+
+// Stats time range
+const STATS_DAYS_OPTIONS = [7, 14, 30, 90] as const
+const statsDays = ref(route.query.days ? Number(route.query.days) : 7)
+
+watch(statsDays, (days) => {
+  router.replace({ query: { ...route.query, days: days !== 7 ? String(days) : undefined } })
+  store.fetchStats(hash.value, days)
+})
 
 // Cleanup dialog
 const showCleanup = ref(false)
@@ -79,34 +94,51 @@ const nodeDetailRows = computed(() => {
   return rows
 })
 
-const tabs = [
-  { key: 'dag', label: 'DAG' },
-  { key: 'runs', label: 'Runs' },
+const tabs = computed(() => [
+  { key: 'runs', label: 'Runs', count: runs.value.length || null },
   { key: 'stats', label: 'Stats' },
-]
+  { key: 'dag', label: 'DAG' },
+])
 
 function switchTab(tab: string) {
   activeTab.value = tab
   router.replace({ query: { ...route.query, tab } })
 }
 
+// Sync statusFilter to URL
+watch(statusFilter.items, (val) => {
+  router.replace({ query: { ...route.query, status: val.size > 0 ? Array.from(val).join(',') : undefined } })
+}, { deep: true })
+
+function activeChipClass(status: string): string {
+  switch (status) {
+    case 'success': return 'bg-success/15 text-success shadow-sm ring-1 ring-success/20'
+    case 'failed': return 'bg-destructive/15 text-destructive shadow-sm ring-1 ring-destructive/20'
+    case 'timeout': return 'bg-warning/15 text-warning shadow-sm ring-1 ring-warning/20'
+    default: return 'bg-card text-foreground shadow-sm'
+  }
+}
+
+function toggleStatus(s: string) {
+  statusFilter.toggle(s)
+  loadRuns()
+}
+
+function statusQueryParam(): string | undefined {
+  return statusFilter.items.value.size > 0 ? Array.from(statusFilter.items.value).join(',') : undefined
+}
+
 async function loadRuns() {
   selectedRuns.value = []
   hasMore.value = true
-  await store.fetchRuns(hash.value, {
-    status: statusFilter.value || undefined,
-    limit: 50,
-  })
+  await store.fetchRuns(hash.value, { status: statusQueryParam(), limit: 50 })
   if (runs.value.length < 50) hasMore.value = false
 }
 
 async function loadMoreRuns() {
   loadingMore.value = true
   try {
-    const count = await store.fetchMoreRuns(hash.value, {
-      status: statusFilter.value || undefined,
-      limit: 50,
-    })
+    const count = await store.fetchMoreRuns(hash.value, { status: statusQueryParam(), limit: 50 })
     if (count < 50) hasMore.value = false
   } finally {
     loadingMore.value = false
@@ -170,24 +202,29 @@ const maxFailureCount = computed(() => {
 
 function onCleanupDone(count: number) {
   if (count > 0) {
-    // Refresh data after cleanup
     store.fetchRuns(hash.value, { limit: 50 })
-    store.fetchStats(hash.value)
+    store.fetchStats(hash.value, statsDays.value)
   }
 }
 
-onMounted(async () => {
+/** Load all pipeline data (detail, runs, stats, DAG step statuses). */
+async function loadPipeline(pipelineHash: string, opts?: { status?: string }) {
+  loading.value = true
+  error.value = ''
+  stepStatuses.value = {}
+  selectedRuns.value = []
+  hasMore.value = true
   try {
     await Promise.all([
-      store.fetchDetail(hash.value),
-      store.fetchRuns(hash.value, { limit: 50 }),
-      store.fetchStats(hash.value),
+      store.fetchDetail(pipelineHash),
+      store.fetchRuns(pipelineHash, { status: opts?.status, limit: 50 }),
+      store.fetchStats(pipelineHash, statsDays.value),
     ])
 
     if (runs.value.length < 50) hasMore.value = false
 
     // Compute step statuses from latest run's events for DAG coloring
-    const r = store.getRuns(hash.value)
+    const r = store.getRuns(pipelineHash)
     if (r.length > 0) {
       try {
         const latestEvents = await api.getEvents(r[0]!.run_id)
@@ -206,28 +243,12 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(() => loadPipeline(hash.value, { status: statusQueryParam() }))
 
 // Re-fetch when navigating to a different pipeline
-watch(hash, async (newHash) => {
-  loading.value = true
-  error.value = ''
-  stepStatuses.value = {}
-  selectedRuns.value = []
-  hasMore.value = true
-  try {
-    await Promise.all([
-      store.fetchDetail(newHash),
-      store.fetchRuns(newHash, { limit: 50 }),
-      store.fetchStats(newHash),
-    ])
-    if (runs.value.length < 50) hasMore.value = false
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    loading.value = false
-  }
-})
+watch(hash, (newHash) => loadPipeline(newHash))
 </script>
 
 <template>
@@ -238,10 +259,7 @@ watch(hash, async (newHash) => {
       <!-- Header -->
       <div class="mb-6">
         <div class="flex items-center justify-between">
-          <RouterLink to="/" class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft class="h-3.5 w-3.5" />
-            Fleet Command
-          </RouterLink>
+          <Breadcrumb :items="[{ label: 'Pipelines', to: '/' }, { label: pipeline.name }]" />
           <button
             class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             @click="showCleanup = true"
@@ -281,67 +299,81 @@ watch(hash, async (newHash) => {
 
       <!-- Runs Tab -->
       <div v-if="activeTab === 'runs'">
-        <!-- Filter -->
+        <!-- Status filter chips -->
         <div class="mb-4 flex items-center gap-3">
-          <select
-            v-model="statusFilter"
-            class="rounded-md border border-border bg-input px-3 py-1.5 text-sm text-foreground"
-            @change="loadRuns()"
-          >
-            <option value="">All statuses</option>
-            <option value="success">Success</option>
-            <option value="failed">Failed</option>
-            <option value="timeout">Timeout</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-          <span class="text-xs text-muted-foreground">
-            Showing {{ runs.length }} run(s){{ hasMore ? '+' : '' }}
+          <div class="flex flex-wrap gap-1.5 rounded-lg bg-muted/50 p-1.5">
+            <button
+              v-for="s in STATUS_OPTIONS"
+              :key="s"
+              class="rounded-md px-2.5 py-1 text-xs font-medium capitalize transition-colors"
+              :class="statusFilter.has(s)
+                ? activeChipClass(s)
+                : 'text-muted-foreground hover:text-foreground'"
+              @click="toggleStatus(s)"
+            >
+              {{ s }}
+            </button>
+          </div>
+          <span class="text-xs text-muted-foreground whitespace-nowrap">
+            {{ runs.length }} run(s){{ hasMore ? '+' : '' }}<template v-if="statusFilter.items.value.size > 0"> matching {{ statusFilter.items.value.size }} filter(s)</template>
           </span>
+          <button
+            v-if="statusFilter.items.value.size > 0"
+            class="rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
+            @click="statusFilter.clear(); loadRuns()"
+          >
+            Clear
+          </button>
         </div>
 
         <!-- Runs table -->
         <div class="overflow-hidden rounded-lg border border-border">
-          <table class="w-full text-sm">
-            <thead class="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th class="w-10 px-4 py-3 font-medium"></th>
-                <th class="px-4 py-3 font-medium">Run ID</th>
-                <th class="px-4 py-3 font-medium">Status</th>
-                <th class="px-4 py-3 font-medium">Started</th>
-                <th class="px-4 py-3 font-medium">Duration</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-border">
-              <tr
-                v-for="run in runs"
-                :key="run.run_id"
-                class="cursor-pointer transition-colors hover:bg-accent/30"
-                :class="{ 'bg-primary/5': selectedRuns.includes(run.run_id) }"
-              >
-                <td class="px-4 py-3" @click.stop>
-                  <input
-                    type="checkbox"
-                    :checked="selectedRuns.includes(run.run_id)"
-                    :disabled="!selectedRuns.includes(run.run_id) && selectedRuns.length >= 2"
-                    class="rounded border-border"
-                    @change="toggleRunSelection(run.run_id)"
-                  />
-                </td>
-                <td class="px-4 py-3 font-mono text-xs" @click="$router.push(`/run/${run.run_id}`)">{{ shortId(run.run_id) }}</td>
-                <td class="px-4 py-3" @click="$router.push(`/run/${run.run_id}`)">
-                  <div class="flex items-center gap-2">
-                    <StatusIndicator :status="run.status" size="sm" />
-                    <Badge :variant="statusBadgeVariant(run.status)">{{ run.status }}</Badge>
-                  </div>
-                </td>
-                <td class="px-4 py-3 text-muted-foreground" @click="$router.push(`/run/${run.run_id}`)">{{ formatTimestamp(run.start_time) }}</td>
-                <td class="px-4 py-3 tabular-nums" @click="$router.push(`/run/${run.run_id}`)">{{ formatDuration(run.duration_seconds) }}</td>
-              </tr>
-              <tr v-if="runs.length === 0">
-                <td colspan="5" class="px-4 py-8 text-center text-muted-foreground">No runs found</td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th class="w-10 px-4 py-3 font-medium"></th>
+                  <th class="px-4 py-3 font-medium">Run ID</th>
+                  <th class="px-4 py-3 font-medium">Status</th>
+                  <th class="px-4 py-3 font-medium">Started</th>
+                  <th class="px-4 py-3 font-medium">Duration</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-border">
+                <tr
+                  v-for="run in runs"
+                  :key="run.run_id"
+                  class="cursor-pointer transition-colors hover:bg-accent/30"
+                  :class="{ 'bg-primary/5': selectedRuns.includes(run.run_id) }"
+                  @click="$router.push(`/run/${run.run_id}`)"
+                >
+                  <td class="px-4 py-3" @click.stop>
+                    <input
+                      type="checkbox"
+                      :checked="selectedRuns.includes(run.run_id)"
+                      :disabled="!selectedRuns.includes(run.run_id) && selectedRuns.length >= 2"
+                      class="rounded border-border"
+                      @change="toggleRunSelection(run.run_id)"
+                    />
+                  </td>
+                  <td class="px-4 py-3 font-mono text-xs">
+                    <RouterLink :to="`/run/${run.run_id}`" class="hover:underline" @click.stop>{{ shortId(run.run_id) }}</RouterLink>
+                  </td>
+                  <td class="px-4 py-3">
+                    <div class="flex items-center gap-2">
+                      <StatusIndicator :status="run.status" size="sm" />
+                      <Badge :variant="statusBadgeVariant(run.status)">{{ run.status }}</Badge>
+                    </div>
+                  </td>
+                  <td class="px-4 py-3 text-muted-foreground">{{ formatTimestamp(run.start_time) }}</td>
+                  <td class="px-4 py-3 tabular-nums">{{ formatDuration(run.duration_seconds) }}</td>
+                </tr>
+                <tr v-if="runs.length === 0">
+                  <td colspan="5" class="px-4 py-8 text-center text-muted-foreground">No runs found</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <!-- Load more -->
@@ -385,7 +417,23 @@ watch(hash, async (newHash) => {
       </div>
 
       <!-- Stats Tab -->
-      <div v-if="activeTab === 'stats' && stats">
+      <div v-show="activeTab === 'stats'" v-if="stats">
+        <!-- Time range selector -->
+        <div class="mb-4 flex items-center gap-2">
+          <span class="text-xs text-muted-foreground">Time range:</span>
+          <div class="flex gap-1 rounded-lg bg-muted/50 p-1">
+            <button
+              v-for="d in STATS_DAYS_OPTIONS"
+              :key="d"
+              class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+              :class="statsDays === d ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+              @click="statsDays = d"
+            >
+              {{ d }}d
+            </button>
+          </div>
+        </div>
+
         <!-- Summary tiles -->
         <div class="mb-6 grid gap-4 sm:grid-cols-4 stagger-reveal">
           <MetricTile label="Total Runs" :value="stats.total_runs" :sublabel="`Last ${stats.days} days`" />
@@ -399,7 +447,7 @@ watch(hash, async (newHash) => {
 
         <!-- Status breakdown -->
         <div class="mb-6 rounded-lg border border-border bg-card p-4">
-          <h4 class="border-l-2 border-primary/40 pl-3 mb-3 text-sm font-medium text-foreground">Status Breakdown</h4>
+          <SectionHeader label="Status Breakdown" />
           <div class="space-y-2">
             <div v-for="[status, count] in statusEntries" :key="status" class="flex items-center gap-3">
               <span class="w-24 text-sm text-muted-foreground capitalize">{{ status }}</span>
@@ -424,7 +472,7 @@ watch(hash, async (newHash) => {
 
         <!-- Daily Activity -->
         <div v-if="dailyActivityData.length > 1" class="mb-6 rounded-lg border border-border bg-card p-4">
-          <h4 class="border-l-2 border-primary/40 pl-3 mb-3 text-sm font-medium text-foreground">Daily Activity</h4>
+          <SectionHeader label="Daily Activity" />
           <Sparkline :data="dailyActivityData" :height="48" :bars="true" />
           <div class="mt-2 flex justify-between text-[9px] font-mono text-muted-foreground">
             <span>{{ dailyActivityData[0]?.[0] }}</span>
@@ -434,7 +482,7 @@ watch(hash, async (newHash) => {
 
         <!-- Duration Trend -->
         <div v-if="durationTrendData.length > 1" class="mb-6 rounded-lg border border-border bg-card p-4">
-          <h4 class="border-l-2 border-primary/40 pl-3 mb-3 text-sm font-medium text-foreground">Duration Trend</h4>
+          <SectionHeader label="Duration Trend" />
           <Sparkline :data="durationTrendData" :height="48" color="var(--color-warning)" />
           <div class="mt-2 flex justify-between text-[9px] font-mono text-muted-foreground">
             <span>{{ durationTrendData[0]?.[0] }}</span>
@@ -444,7 +492,7 @@ watch(hash, async (newHash) => {
 
         <!-- Failure Hotspots (Error Heatmap by Step) -->
         <div v-if="failureHotspots.length" class="mb-6 rounded-lg border border-border bg-card p-4">
-          <h4 class="border-l-2 border-primary/40 pl-3 mb-3 text-sm font-medium text-foreground">Failure Hotspots</h4>
+          <SectionHeader label="Failure Hotspots" />
           <div class="space-y-2">
             <div v-for="[step, count] in failureHotspots" :key="step" class="flex items-center gap-3">
               <span class="w-40 truncate font-mono text-xs text-muted-foreground">{{ step }}</span>
@@ -463,7 +511,7 @@ watch(hash, async (newHash) => {
 
         <!-- Recent errors -->
         <div v-if="stats.recent_errors.length" class="rounded-lg border border-border bg-card p-4">
-          <h4 class="border-l-2 border-primary/40 pl-3 mb-3 text-sm font-medium text-foreground">Recent Errors</h4>
+          <SectionHeader label="Recent Errors" />
           <div class="space-y-2">
             <div
               v-for="err in stats.recent_errors"
@@ -475,7 +523,7 @@ watch(hash, async (newHash) => {
                   :to="`/run/${err.run_id}`"
                   class="font-mono text-xs text-destructive hover:underline"
                 >
-                  {{ err.run_id.slice(0, 12) }}
+                  {{ shortId(err.run_id) }}
                 </RouterLink>
                 <span v-if="err.error_step" class="text-xs text-destructive/70">
                   at {{ err.error_step }}

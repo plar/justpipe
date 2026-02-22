@@ -69,16 +69,25 @@ class DashboardAPI:
     def list_runs(
         self,
         pipeline_hash: str,
-        status: PipelineTerminalStatus | None = None,
+        statuses: list[PipelineTerminalStatus] | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> list[dict[str, Any]] | None:
-        """Paginated runs for one pipeline."""
+        """Paginated runs for one pipeline, optionally filtered by multiple statuses."""
         info = self._find_pipeline(pipeline_hash)
         if info is None:
             return None
         backend = self._registry.get_backend(info.hash)
-        runs = backend.list_runs(status=status, limit=limit, offset=offset)
+        if statuses and len(statuses) == 1:
+            runs = backend.list_runs(status=statuses[0], limit=limit, offset=offset)
+        elif statuses:
+            # Multi-status: fetch all then filter client-side
+            all_runs = backend.list_runs(limit=MAX_QUERY_LIMIT)
+            status_set = set(statuses)
+            filtered = [r for r in all_runs if r.status in status_set]
+            runs = filtered[offset : offset + limit]
+        else:
+            runs = backend.list_runs(limit=limit, offset=offset)
         return [serialize_run(r, info.name, info.hash) for r in runs]
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
@@ -145,13 +154,24 @@ class DashboardAPI:
         runs = backend.list_runs(limit=MAX_QUERY_LIMIT)
         return serialize_stats(runs, days=days)
 
-    def search_runs(self, prefix: str, limit: int = 10) -> list[dict[str, Any]]:
-        """Search runs by ID prefix across all pipelines."""
+    def search_runs(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Search runs by ID prefix or pipeline name across all pipelines."""
         results: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        query_lower = query.lower()
         for info in self._registry.list_pipelines():
             backend = self._registry.get_backend(info.hash)
-            for run in backend.find_runs_by_prefix(prefix, limit=limit):
-                results.append(serialize_run(run, info.name, info.hash))
+            # Match by run ID prefix
+            for run in backend.find_runs_by_prefix(query, limit=limit):
+                if run.run_id not in seen_ids:
+                    seen_ids.add(run.run_id)
+                    results.append(serialize_run(run, info.name, info.hash))
+            # Match by pipeline name — return recent runs from matching pipelines
+            if query_lower in info.name.lower():
+                for run in backend.list_runs(limit=limit):
+                    if run.run_id not in seen_ids:
+                        seen_ids.add(run.run_id)
+                        results.append(serialize_run(run, info.name, info.hash))
         results.sort(key=lambda r: r["start_time"], reverse=True)
         return results[:limit]
 

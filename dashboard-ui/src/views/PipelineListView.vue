@@ -1,21 +1,45 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { usePipelinesStore } from '@/stores/pipelines'
 import { useUiStore } from '@/stores/ui'
 import { formatDuration, relativeTime } from '@/lib/utils'
-import { statusForRate } from '@/lib/view-helpers'
+import { statusForRate, rateColorClass } from '@/lib/view-helpers'
 import { useKeyboard } from '@/composables/useKeyboard'
+import { onPipelinesDiscovered } from '@/composables/useHealth'
 import MetricTile from '@/components/ui/MetricTile.vue'
 import StatusIndicator from '@/components/ui/StatusIndicator.vue'
 import LoadingState from '@/components/ui/LoadingState.vue'
-import EmptyState from '@/components/ui/EmptyState.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
-import { LayoutGrid, List, ArrowRight, RefreshCw } from 'lucide-vue-next'
+import { LayoutGrid, List, ArrowRight, RefreshCw, Star } from 'lucide-vue-next'
 
+const route = useRoute()
+const router = useRouter()
 const store = usePipelinesStore()
 const ui = useUiStore()
-const search = ref('')
+const search = ref((route.query.q as string) || '')
 const searchInputRef = ref<HTMLInputElement | null>(null)
+
+// Sync search to URL
+watch(search, (val) => {
+  router.replace({ query: { ...route.query, q: val || undefined } })
+})
+
+// Favorites (localStorage-based)
+const FAVORITES_KEY = 'justpipe-favorites'
+const favorites = ref<Set<string>>(new Set(JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]')))
+
+function toggleFavorite(hash: string, e: Event) {
+  e.preventDefault()
+  e.stopPropagation()
+  if (favorites.value.has(hash)) {
+    favorites.value.delete(hash)
+  } else {
+    favorites.value.add(hash)
+  }
+  favorites.value = new Set(favorites.value) // trigger reactivity
+  localStorage.setItem(FAVORITES_KEY, JSON.stringify([...favorites.value]))
+}
 
 // Auto-refresh
 const refreshInterval = ref(0)
@@ -70,12 +94,25 @@ const avgDuration = computed(() => {
   return formatDuration(durations.reduce((a, b) => a + b, 0) / durations.length)
 })
 
-const filtered = computed(() =>
-  store.pipelines.filter((p) => p.name.toLowerCase().includes(search.value.toLowerCase()))
-)
+const filtered = computed(() => {
+  const matched = store.pipelines.filter((p) => p.name.toLowerCase().includes(search.value.toLowerCase()))
+  // Sort favorites first
+  return matched.sort((a, b) => {
+    const aFav = favorites.value.has(a.hash) ? 0 : 1
+    const bFav = favorites.value.has(b.hash) ? 0 : 1
+    return aFav - bFav
+  })
+})
 
 useKeyboard({
   searchRef: searchInputRef,
+})
+
+// Auto-detect when pipelines first appear via health polling
+onPipelinesDiscovered(() => {
+  if (store.pipelines.length === 0) {
+    store.fetchPipelines()
+  }
 })
 </script>
 
@@ -84,12 +121,12 @@ useKeyboard({
     <!-- Header -->
     <div class="mb-6 flex items-end justify-between">
       <div>
-        <h1 class="text-2xl font-semibold text-foreground">Fleet Command</h1>
+        <h1 class="text-2xl font-semibold text-foreground">Pipelines</h1>
         <p class="mt-1 text-sm text-muted-foreground">
           Monitor and inspect all registered pipelines
         </p>
       </div>
-      <div class="flex items-center gap-3">
+      <div v-if="store.pipelines.length > 0" class="flex items-center gap-3">
         <!-- Auto-refresh controls -->
         <div class="flex items-center gap-2">
           <button
@@ -132,8 +169,8 @@ useKeyboard({
       </div>
     </div>
 
-    <!-- Aggregate Metrics -->
-    <div class="mb-8 grid gap-4 sm:grid-cols-3 stagger-reveal">
+    <!-- Aggregate Metrics (hide when no pipelines) -->
+    <div v-if="store.pipelines.length > 0" class="mb-8 grid gap-4 sm:grid-cols-3 stagger-reveal">
       <MetricTile
         label="Pipelines"
         :value="store.totalPipelines"
@@ -167,12 +204,36 @@ useKeyboard({
     <!-- Error -->
     <ErrorBanner v-else-if="store.error" :message="store.error" />
 
-    <!-- Empty -->
-    <EmptyState
+    <!-- Empty — onboarding -->
+    <div
       v-else-if="store.pipelines.length === 0"
-      title="No Pipelines Discovered"
-      description="Run a pipeline with persist=True to see data here."
-    />
+      class="flex flex-col items-center justify-center py-16 text-center"
+    >
+      <div class="mb-4 rounded-full bg-muted p-4">
+        <svg class="h-8 w-8 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+        </svg>
+      </div>
+      <h3 class="text-lg font-medium text-foreground">No Pipelines Yet</h3>
+      <p class="mt-1 max-w-md text-sm text-muted-foreground">
+        Enable persistence on your pipeline runs to start collecting data.
+      </p>
+      <div class="mt-6 w-full max-w-md rounded-lg border border-border bg-muted/30 p-4 text-left">
+        <p class="mb-2 text-xs font-medium text-muted-foreground">Quick start</p>
+        <pre class="overflow-x-auto font-mono text-xs leading-relaxed text-foreground"><span class="text-muted-foreground"># Enable persistence when running your pipeline</span>
+result = <span class="text-primary/80">await</span> pipe.run(
+    state=MyState(),
+    context=MyContext(),
+    <span class="text-primary">persist=True</span>,
+)</pre>
+      </div>
+      <p class="mt-4 text-xs text-muted-foreground">
+        Data is stored locally in SQLite. See
+        <a href="https://github.com/plar/justpipe#persistence" target="_blank" rel="noopener"
+          class="text-primary hover:underline">docs</a>
+        for more options.
+      </p>
+    </div>
 
     <!-- No search results -->
     <div
@@ -200,7 +261,17 @@ useKeyboard({
             </h3>
             <p class="mt-0.5 font-mono text-xs text-muted-foreground">{{ p.hash.slice(0, 12) }}</p>
           </div>
-          <StatusIndicator :status="statusForRate(p.success_rate)" size="md" />
+          <div class="flex items-center gap-2">
+            <button
+              class="rounded p-0.5 transition-colors"
+              :class="favorites.has(p.hash) ? 'text-warning' : 'text-muted-foreground/30 opacity-0 group-hover:opacity-100'"
+              title="Toggle favorite"
+              @click="toggleFavorite(p.hash, $event)"
+            >
+              <Star class="h-4 w-4" :class="{ 'fill-current': favorites.has(p.hash) }" />
+            </button>
+            <StatusIndicator :status="statusForRate(p.success_rate)" size="md" />
+          </div>
         </div>
 
         <div class="mt-4 grid grid-cols-3 gap-3 text-center">
@@ -209,7 +280,7 @@ useKeyboard({
             <p class="text-[10px] uppercase tracking-wider text-muted-foreground">Runs</p>
           </div>
           <div>
-            <p class="text-lg font-semibold tabular-nums" :class="p.success_rate >= 90 ? 'text-success' : p.success_rate >= 70 ? 'text-warning' : 'text-destructive'">
+            <p class="text-lg font-semibold tabular-nums" :class="rateColorClass(p.success_rate)">
               {{ p.success_rate.toFixed(0) }}%
             </p>
             <p class="text-[10px] uppercase tracking-wider text-muted-foreground">Success</p>
@@ -221,7 +292,11 @@ useKeyboard({
         </div>
 
         <div class="mt-4 flex items-center justify-between text-xs text-muted-foreground">
-          <span v-if="p.last_run_time">{{ relativeTime(p.last_run_time) }}</span>
+          <span v-if="p.last_run_time" class="flex items-center gap-1.5">
+            <StatusIndicator v-if="p.last_run_status" :status="p.last_run_status" size="sm" />
+            {{ relativeTime(p.last_run_time) }}
+            <span v-if="p.last_run_status" class="text-muted-foreground/70">&middot; {{ p.last_run_status }}</span>
+          </span>
           <span v-else>No runs</span>
           <ArrowRight class="h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
         </div>
@@ -233,6 +308,7 @@ useKeyboard({
       v-else
       class="overflow-hidden rounded-lg border border-border"
     >
+      <div class="overflow-x-auto">
       <table class="w-full text-sm">
         <thead class="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
           <tr>
@@ -252,22 +328,35 @@ useKeyboard({
           >
             <td class="px-4 py-3">
               <div class="flex items-center gap-2">
+                <button
+                  class="rounded p-0.5 transition-colors"
+                  :class="favorites.has(p.hash) ? 'text-warning' : 'text-muted-foreground/30 hover:text-muted-foreground'"
+                  title="Toggle favorite"
+                  @click.stop="toggleFavorite(p.hash, $event)"
+                >
+                  <Star class="h-3.5 w-3.5" :class="{ 'fill-current': favorites.has(p.hash) }" />
+                </button>
                 <StatusIndicator :status="statusForRate(p.success_rate)" size="sm" />
                 <span class="font-medium text-foreground">{{ p.name }}</span>
                 <span class="font-mono text-xs text-muted-foreground">{{ p.hash.slice(0, 8) }}</span>
               </div>
             </td>
             <td class="px-4 py-3 tabular-nums">{{ p.total_runs }}</td>
-            <td class="px-4 py-3 tabular-nums" :class="p.success_rate >= 90 ? 'text-success' : p.success_rate >= 70 ? 'text-warning' : 'text-destructive'">
+            <td class="px-4 py-3 tabular-nums" :class="rateColorClass(p.success_rate)">
               {{ p.success_rate.toFixed(0) }}%
             </td>
             <td class="px-4 py-3 tabular-nums">{{ formatDuration(p.avg_duration_seconds) }}</td>
             <td class="px-4 py-3 text-muted-foreground">
-              {{ p.last_run_time ? relativeTime(p.last_run_time) : '-' }}
+              <span v-if="p.last_run_time" class="flex items-center gap-1.5">
+                <StatusIndicator v-if="p.last_run_status" :status="p.last_run_status" size="sm" />
+                {{ relativeTime(p.last_run_time) }}
+              </span>
+              <span v-else>-</span>
             </td>
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
   </div>
 </template>

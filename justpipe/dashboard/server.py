@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypeVar
 
@@ -42,13 +43,25 @@ def create_app(registry: PipelineRegistry, static_dir: Path) -> FastAPI:
     @app.get("/api/pipelines/{pipeline_hash}/runs")
     def list_runs(
         pipeline_hash: str,
-        status: PipelineTerminalStatus | None = Query(default=None),
+        status: str | None = Query(default=None),
         limit: int = Query(default=20, ge=1, le=1000),
         offset: int = Query(default=0, ge=0),
     ) -> list[dict]:
+        statuses: list[PipelineTerminalStatus] | None = None
+        if status:
+            statuses = [PipelineTerminalStatus(s.strip()) for s in status.split(",")]
         return _or_404(
-            api.list_runs(pipeline_hash, status, limit, offset), "Pipeline not found"
+            api.list_runs(pipeline_hash, statuses, limit, offset), "Pipeline not found"
         )
+
+    # Search must be defined BEFORE /api/runs/{run_id} so FastAPI
+    # matches the literal path before the parameterized one.
+    @app.get("/api/runs/search")
+    def search_runs(
+        q: str = Query(..., min_length=3),
+        limit: int = Query(default=10, ge=1, le=50),
+    ) -> list[dict]:
+        return api.search_runs(q, limit)
 
     @app.get("/api/runs/{run_id}")
     def get_run(run_id: str) -> dict:
@@ -79,13 +92,6 @@ def create_app(registry: PipelineRegistry, static_dir: Path) -> FastAPI:
     ) -> dict:
         return _or_404(api.get_stats(pipeline_hash, days), "Pipeline not found")
 
-    @app.get("/api/runs/search")
-    def search_runs(
-        q: str = Query(..., min_length=3),
-        limit: int = Query(default=10, ge=1, le=50),
-    ) -> list[dict]:
-        return api.search_runs(q, limit)
-
     @app.post("/api/pipelines/{pipeline_hash}/cleanup")
     def cleanup_runs(
         pipeline_hash: str,
@@ -98,6 +104,14 @@ def create_app(registry: PipelineRegistry, static_dir: Path) -> FastAPI:
             api.cleanup_runs(pipeline_hash, older_than_days, status, keep, dry_run),
             "Pipeline not found",
         )
+
+    @app.get("/api/health")
+    def health() -> dict:
+        return {
+            "status": "ok",
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+            "total_pipelines": len(registry.list_pipelines()),
+        }
 
     # Static files — only mount if built assets exist
     assets_dir = static_dir / "assets"

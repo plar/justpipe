@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import type { Comparison, TimelineEntry } from '@/types'
 import { api } from '@/api/client'
 import { formatDuration, shortId } from '@/lib/utils'
+import { diffColorClass, diffBgClass } from '@/lib/view-helpers'
 import MetricTile from '@/components/ui/MetricTile.vue'
 import Badge from '@/components/ui/Badge.vue'
 import LoadingState from '@/components/ui/LoadingState.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import RunAutocomplete from '@/components/ui/RunAutocomplete.vue'
+import Breadcrumb from '@/components/ui/Breadcrumb.vue'
 import { AlertTriangle } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -122,6 +124,7 @@ function stepDiff(stepName: string): number | null {
 
 <template>
   <div>
+    <Breadcrumb :items="[{ label: 'Pipelines', to: '/' }, { label: 'Compare' }]" class="mb-4" />
     <h1 class="text-2xl font-semibold text-foreground">Compare Runs</h1>
     <p class="mt-1 text-sm text-muted-foreground">
       Enter two run IDs (or prefixes) to compare execution details
@@ -175,12 +178,12 @@ function stepDiff(stepName: string): number | null {
         <div class="grid gap-4 sm:grid-cols-2">
           <div class="rounded-lg border border-border bg-card p-4">
             <h3 class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Run 1 (baseline)</h3>
-            <p class="mt-1 font-mono text-sm text-foreground">{{ shortId(comparison.run1_id) }}</p>
+            <RouterLink :to="`/run/${comparison.run1_id}`" class="mt-1 block font-mono text-sm text-foreground hover:underline">{{ shortId(comparison.run1_id) }}</RouterLink>
             <p class="text-xs text-muted-foreground">{{ comparison.pipeline1_name }}</p>
           </div>
           <div class="rounded-lg border border-border bg-card p-4">
             <h3 class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Run 2 (compare)</h3>
-            <p class="mt-1 font-mono text-sm text-foreground">{{ shortId(comparison.run2_id) }}</p>
+            <RouterLink :to="`/run/${comparison.run2_id}`" class="mt-1 block font-mono text-sm text-foreground hover:underline">{{ shortId(comparison.run2_id) }}</RouterLink>
             <p class="text-xs text-muted-foreground">{{ comparison.pipeline2_name }}</p>
           </div>
         </div>
@@ -216,7 +219,7 @@ function stepDiff(stepName: string): number | null {
                 <span
                   v-if="stepDiff(step) !== null"
                   class="text-xs font-mono tabular-nums"
-                  :class="stepDiff(step)! > 0.001 ? 'text-destructive' : stepDiff(step)! < -0.001 ? 'text-success' : 'text-muted-foreground'"
+                  :class="diffColorClass(stepDiff(step)!)"
                 >
                   {{ stepDiff(step)! > 0 ? '+' : '' }}{{ stepDiff(step)!.toFixed(3) }}s
                 </span>
@@ -245,7 +248,7 @@ function stepDiff(stepName: string): number | null {
                     <div
                       v-if="getStepEntry(timeline2, step)"
                       class="h-full rounded"
-                      :class="stepDiff(step) !== null && stepDiff(step)! > 0.001 ? 'bg-destructive/60' : stepDiff(step) !== null && stepDiff(step)! < -0.001 ? 'bg-success/60' : 'bg-info/70'"
+                      :class="diffBgClass(stepDiff(step))"
                       :style="{ width: (getStepEntry(timeline2, step)!.duration_seconds / maxDuration * 100) + '%' }"
                     />
                   </div>
@@ -286,7 +289,7 @@ function stepDiff(stepName: string): number | null {
                 </td>
                 <td
                   class="px-4 py-2 text-right font-mono text-xs"
-                  :class="diff > 0.001 ? 'text-destructive' : diff < -0.001 ? 'text-success' : 'text-muted-foreground'"
+                  :class="diffColorClass(diff)"
                 >
                   {{ diff > 0 ? '+' : '' }}{{ diff.toFixed(3) }}s
                 </td>

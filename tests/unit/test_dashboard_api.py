@@ -106,7 +106,7 @@ class TestListRuns:
         self, api_env: tuple[DashboardAPI, SQLiteBackend]
     ) -> None:
         api, _ = api_env
-        result = api.list_runs("abc123", status=PipelineTerminalStatus.FAILED)
+        result = api.list_runs("abc123", statuses=[PipelineTerminalStatus.FAILED])
 
         assert result is not None
         assert len(result) == 1

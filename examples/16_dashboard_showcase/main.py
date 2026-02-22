@@ -14,11 +14,10 @@ Run:
     uv run examples/16_dashboard_showcase/main.py
 
 Then launch dashboard:
-    JUSTPIPE_STORAGE_PATH=/tmp/justpipe_showcase uv run justpipe dashboard
+    uv run justpipe dashboard
 """
 
 import asyncio
-import os
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -395,9 +394,6 @@ async def deliver(state: RenderJob, ctx: RenderContext):
 
 
 async def main():
-    storage_dir = "/tmp/justpipe_showcase"
-    os.environ["JUSTPIPE_STORAGE_PATH"] = storage_dir
-
     scenarios = [SCENARIO_A, SCENARIO_B, SCENARIO_C]
     results: list[tuple[str, str | None, str]] = []
 
@@ -457,7 +453,7 @@ async def main():
     print("LAUNCH DASHBOARD")
     print("=" * 70)
     print()
-    print(f"  JUSTPIPE_STORAGE_PATH={storage_dir} uv run justpipe dashboard")
+    print("  uv run justpipe dashboard")
     print()
 
     # Compare instructions
@@ -466,10 +462,7 @@ async def main():
         r1 = success_runs[0][1][:12]
         r2 = success_runs[1][1][:12]
         print("Compare runs:")
-        print(
-            f"  JUSTPIPE_STORAGE_PATH={storage_dir}"
-            f" uv run justpipe compare {r1} {r2}"
-        )
+        print(f"  uv run justpipe compare {r1} {r2}")
         print()
 
 
